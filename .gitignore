@@ -1,0 +1,19 @@
+# Python
+venv/
+.venv/
+__pycache__/
+*.pyc
+
+# OS junk
+.DS_Store
+Thumbs.db
+
+# Node (not used today, but keep it out if someone adds tooling)
+node_modules/
+
+# Local IP / config files: keep machine-specific settings out of git
+.env
+.env.*
+*.local
+*.local.*
+config.local.*

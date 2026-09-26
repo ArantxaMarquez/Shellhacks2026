@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Camera Confidence</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <main>
+    <section class="card" id="card" data-state="offline">
+      <div class="thumb">
+        <img id="frame" alt="Live camera view">
+        <div class="thumb-off">No image</div>
+      </div>
+
+      <div class="readout">
+        <div class="head">
+          <span class="label">Camera confidence</span>
+          <span class="badge" id="badge">Offline</span>
+        </div>
+
+        <div class="value"><span id="pct">--</span><span class="unit" id="unit"></span></div>
+
+        <div class="bar" role="progressbar" aria-valuemin="0" aria-valuemax="100" id="bar-track">
+          <div class="bar-fill" id="bar"></div>
+        </div>
+
+        <p class="caption" id="caption" aria-live="polite">Connecting to sensor…</p>
+      </div>
+    </section>
+  </main>
+
+  <script src="app.js"></script>
+</body>
+</html>
