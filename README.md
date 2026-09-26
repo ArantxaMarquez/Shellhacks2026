@@ -5,7 +5,7 @@ Scores how clear a camera image is (0-100) and shows it in a web page.
 - `pi-service/` – Python Flask service. Reads the camera, scores frames, serves JSON + a JPEG.
 - `web/` – plain HTML/CSS/JS frontend. No build step, no framework: open `index.html` or serve the folder.
 
-The same script runs on a Raspberry Pi camera and on a laptop webcam.
+The same service runs on a Raspberry Pi camera (via `picamera2`) and on a laptop webcam (via OpenCV). Only frame capture differs; the scoring is identical.
 
 ## Quick start
 
@@ -105,13 +105,38 @@ Then visit http://localhost:8080
 </td></tr>
 </table>
 
+## Raspberry Pi
+
+On a Pi with a camera module (Pi OS Bookworm or Bullseye), use its own setup script instead of `setup-mac.sh`:
+
+```bash
+bash pi-service/setup-pi.sh
+```
+
+It installs `python3-picamera2`, `python3-opencv`, `python3-flask` and `python3-pip` with apt, installs `flask-cors` with pip, starts the service and runs `curl localhost:5050/health`. Ctrl+C stops the service. To run it again later: `cd pi-service && python3 camera_service.py`.
+
+It does not create a venv, because picamera2 needs the system libcamera bindings, which pip can't install. If you want a venv anyway, run `bash pi-service/setup-pi.sh --venv`. That creates it with `--system-site-packages` so it can still see the apt packages.
+
+**Two streams, locked focus:** the Pi backend captures a 640×480 "lores" stream that is the only thing scored, and a 1280×720 "main" stream that `/frame.jpg` serves. At startup it runs one autofocus cycle, then locks the lens at the result and logs it (`Autofocus locked at lens position ...`). If the lighting or distance changes and the image goes soft, re-lock without restarting:
+
+```bash
+curl -X POST localhost:5050/refocus
+```
+
+Point the camera at something with detail first. Confirm you're on the real camera with `curl localhost:5050/health` (expect `"sensor_model": "imx708"`). Fixed-focus cameras (Camera Module 2) skip autofocus.
+
+**Which camera code runs:** `CAMERA_BACKEND` is `auto` by default: it uses `picamera2` if it can be imported, then falls back to OpenCV (`cv2.VideoCapture`) if the Pi camera can't be opened. So a USB webcam on a Pi still works. Set `CAMERA_BACKEND=picamera2` or `CAMERA_BACKEND=opencv` to force one. Mac and Windows have no `picamera2`, so they use OpenCV automatically.
+
 ## Troubleshooting
 
 **Camera not found** (log says `Could not open camera at device index 0`)
 - Try index 1. In [`pi-service/camera_service.py`](pi-service/camera_service.py) change the `0` to `1` in the `CAMERA_INDEX = int(os.environ.get("CAMERA_INDEX", 0))` line, then restart. Or without editing anything: `CAMERA_INDEX=1 python camera_service.py` (Mac/Linux), or `set CAMERA_INDEX=1` then `python camera_service.py` (Windows).
 - Close anything else using the camera (Zoom, Teams, browser tabs).
 - Mac: System Settings → Privacy & Security → Camera → allow your terminal app, then restart the service.
-- Raspberry Pi ribbon-cable camera: `ls /dev/video*`. If nothing is there, OpenCV can't see it (recent Pi OS uses libcamera). A USB webcam is the easy fix.
+- Raspberry Pi camera module: use `setup-pi.sh` (see "Raspberry Pi" below). It installs `picamera2`, which is how the service talks to libcamera cameras. Check `libcamera-hello` (or `rpicam-hello`) shows a preview; if not, it's the cable/config, not this code.
+- Image is blurry on the Pi: `curl -X POST localhost:5050/refocus` with the camera aimed at something detailed. The service logs the locked lens position. If it says autofocus failed, improve the lighting and try again.
+- Wrong backend picked? Force one: `CAMERA_BACKEND=opencv` or `CAMERA_BACKEND=picamera2` before `python camera_service.py`. The log line "Camera opened via ..." says which one is in use.
+- Pi image has red and blue swapped: look at the `"format": "BGR888"` line in `_open_picamera2_once` in `camera_service.py`.
 
 **CORS error in the browser console**
 - The service uses `flask-cors`. Check it's installed: activate the venv and run `pip show flask-cors`. If missing, run `pip install -r requirements.txt`.
@@ -143,7 +168,8 @@ If you change `PORT` in `camera_service.py` instead, change `SERVICE_URL` in `we
 |---|---|
 | `GET /status` | `{confidence, status, fog_score, obstruction_score, timestamp}` (`timestamp` = unix seconds). `503` until the first frame arrives. |
 | `GET /frame.jpg` | Most recent frame as JPEG. `503` until the first frame arrives. |
-| `GET /health` | `{ok: true, camera_connected: bool}` |
+| `GET /health` | `{ok: true, camera_connected: bool, sensor_model}`. `sensor_model` is e.g. `"imx708"` on a Pi camera and `null` on a webcam, so you can tell the OpenCV fallback isn't silently in use. |
+| `POST /refocus` | Pi camera only: runs one autofocus cycle and locks the lens there. `200 {ok, lens_position, af_state}`. `500` if autofocus failed or timed out, `409` if there is no autofocus-capable Pi camera. |
 
 `status` is `clear` (confidence ≥ 70), `degraded` (40–69) or `obstructed` (< 40).
 
