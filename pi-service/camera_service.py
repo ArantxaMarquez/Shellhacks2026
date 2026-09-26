@@ -5,8 +5,16 @@ image is (0-100), and serves the result over HTTP on port 5050.
 
     python camera_service.py
 
-Runs unchanged on a Raspberry Pi camera and a laptop webcam.
-Pick a different camera with:  CAMERA_INDEX=1 python camera_service.py
+Two ways to get frames (only this part differs; the scoring is the same):
+  * picamera2   - Raspberry Pi camera (used automatically if it can be imported).
+                  Two streams: a small "lores" one is scored, a bigger "main"
+                  one is what /frame.jpg serves. Focus is locked at startup
+                  (POST /refocus to redo it).
+  * opencv      - laptop / USB webcams via cv2.VideoCapture (the fallback)
+
+Pick a different camera:  CAMERA_INDEX=1 python camera_service.py
+Force a backend:          CAMERA_BACKEND=opencv python camera_service.py
+                          (auto | picamera2 | opencv, default auto)
 """
 
 import logging
@@ -26,6 +34,12 @@ from flask_cors import CORS
 
 # --- Camera ------------------------------------------------------------------
 CAMERA_INDEX = int(os.environ.get("CAMERA_INDEX", 0))
+# "auto": use picamera2 if it can be imported, otherwise OpenCV.
+# "picamera2" / "opencv": force one, for debugging.
+CAMERA_BACKEND = os.environ.get("CAMERA_BACKEND", "auto").strip().lower()
+PICAMERA_LORES_SIZE = (640, 480)   # Pi camera stream that gets scored
+PICAMERA_MAIN_SIZE = (1280, 720)   # Pi camera stream served by /frame.jpg
+AF_TIMEOUT_S = 5.0                 # give up waiting for autofocus after this long
 OPEN_RETRIES = 3            # attempts to open the camera before giving up
 OPEN_RETRY_DELAY_S = 1.0    # pause between attempts
 RECONNECT_DELAY_S = 5.0     # pause before the capture thread tries again
@@ -69,18 +83,21 @@ JPEG_QUALITY = 80
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 log = logging.getLogger("camera_service")
 
+if CAMERA_BACKEND not in ("auto", "picamera2", "opencv"):
+    sys.exit("CAMERA_BACKEND must be auto, picamera2 or opencv (got %r)" % CAMERA_BACKEND)
+
 
 # ----------------------------------------------------------------------------
 # Scoring
 # ----------------------------------------------------------------------------
 
 def to_analysis_gray(frame):
-    """Shrink to ANALYSIS_WIDTH and convert to grayscale."""
+    """Shrink to ANALYSIS_WIDTH and convert to grayscale (frame may already be gray)."""
     h, w = frame.shape[:2]
     if w != ANALYSIS_WIDTH:
         frame = cv2.resize(frame, (ANALYSIS_WIDTH, int(h * ANALYSIS_WIDTH / w)),
                            interpolation=cv2.INTER_AREA)
-    return cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+    return frame if frame.ndim == 2 else cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
 
 
 def fog_score(gray):
@@ -120,25 +137,202 @@ def status_for(confidence):
 # Camera + background capture thread
 # ----------------------------------------------------------------------------
 
-def open_camera(index=CAMERA_INDEX):
-    """Open the camera, retrying a few times. Returns a VideoCapture or None."""
+# Camera sources share one interface:
+#   read()    -> (ok, analysis_frame, display_frame)   analysis = what gets scored,
+#                                                      display = what /frame.jpg serves
+#   release() -> free the camera
+#   sensor_model, refocus() -- Pi camera only
+
+class OpenCvSource:
+    """Frames from a webcam via cv2.VideoCapture (BGR; one stream for both jobs)."""
+
+    sensor_model = None
+
+    def __init__(self, cap):
+        self._cap = cap
+
+    def read(self):
+        ok, frame = self._cap.read()
+        return ok, frame, frame
+
+    def release(self):
+        self._cap.release()
+
+
+class PiCameraSource:
+    """Frames from a Raspberry Pi camera via picamera2, two streams."""
+
+    # libcamera AfState values (what shows up in the metadata)
+    AF_FOCUSED = 2
+    AF_FAILED = 3
+
+    def __init__(self, picam2, sensor_model):
+        self._picam2 = picam2
+        self.sensor_model = sensor_model
+        self._af_lock = threading.Lock()
+
+    def read(self):
+        request = None
+        try:
+            # One request gives both streams from the same instant.
+            request = self._picam2.capture_request()
+            # "main" is RGB -> BGR for OpenCV/JPEG. "lores" is YUV420 and its first
+            # plane is the brightness image, i.e. the grayscale we score.
+            display = cv2.cvtColor(request.make_array("main"), cv2.COLOR_RGB2BGR)
+            analysis = cv2.cvtColor(request.make_array("lores"), cv2.COLOR_YUV2GRAY_I420)
+            return True, analysis, display
+        except Exception as err:
+            log.warning("picamera2 read failed: %s", err)
+            return False, None, None
+        finally:
+            if request is not None:
+                request.release()
+
+    def release(self):
+        try:
+            self._picam2.stop()
+            self._picam2.close()
+        except Exception as err:
+            log.warning("picamera2 release failed: %s", err)
+
+    def refocus(self):
+        """Run one autofocus cycle, then lock focus there.
+
+        Returns {ok, lens_position, af_state} or {ok: False, error}. Only the
+        Camera Module 3 (imx708) has autofocus; fixed-focus cameras skip this.
+        """
+        from libcamera import controls
+
+        if "AfMode" not in self._picam2.camera_controls:
+            return {"ok": False, "error": "this camera has no autofocus"}
+        if not self._af_lock.acquire(blocking=False):
+            return {"ok": False, "error": "a refocus is already running"}
+        try:
+            self._picam2.set_controls({"AfMode": controls.AfModeEnum.Auto,
+                                       "AfTrigger": controls.AfTriggerEnum.Start})
+            state, position = None, None
+            deadline = time.time() + AF_TIMEOUT_S
+            while time.time() < deadline:
+                metadata = self._picam2.capture_metadata()
+                state = metadata.get("AfState")
+                position = metadata.get("LensPosition")
+                if state in (self.AF_FOCUSED, self.AF_FAILED):
+                    break
+
+            # Lock the lens where it ended up so it stops hunting.
+            controls_to_set = {"AfMode": controls.AfModeEnum.Manual}
+            if position is not None:
+                controls_to_set["LensPosition"] = position
+            self._picam2.set_controls(controls_to_set)
+
+            if state == self.AF_FOCUSED:
+                log.info("Autofocus locked at lens position %.2f", position)
+                return {"ok": True, "lens_position": position, "af_state": "focused"}
+            reason = "failed" if state == self.AF_FAILED else "timed out"
+            log.warning("Autofocus %s; lens locked at position %s anyway. "
+                        "Aim at something with detail and POST /refocus.", reason, position)
+            return {"ok": False, "lens_position": position, "af_state": reason,
+                    "error": "autofocus " + reason}
+        finally:
+            self._af_lock.release()
+
+
+def _open_opencv_once(index):
     # DirectShow is the reliable backend on Windows; elsewhere use the default.
     backend = cv2.CAP_DSHOW if sys.platform.startswith("win") else cv2.CAP_ANY
+    cap = cv2.VideoCapture(index, backend)
+    if cap.isOpened():
+        return OpenCvSource(cap)
+    cap.release()
+    return None
 
+
+def _pi_sensor_model(Picamera2, index):
+    """Sensor name (e.g. 'imx708') for the camera at this index, or None."""
+    try:
+        infos = Picamera2.global_camera_info()
+        for info in infos:
+            if info.get("Num") == index:
+                return info.get("Model")
+        return infos[index].get("Model")
+    except Exception as err:
+        log.warning("Could not read sensor model: %s", err)
+        return None
+
+
+def _open_picamera2_once(index):
+    from picamera2 import Picamera2
+
+    picam2 = Picamera2(camera_num=index)
+    try:
+        # picamera2 names formats by byte order in memory, so "BGR888" gives
+        # arrays in R,G,B order (true RGB), which read() converts to BGR.
+        # If the JPEG has red and blue swapped, this is the line to check.
+        picam2.configure(picam2.create_video_configuration(
+            main={"size": PICAMERA_MAIN_SIZE, "format": "BGR888"},
+            lores={"size": PICAMERA_LORES_SIZE, "format": "YUV420"}))
+        picam2.start()
+        source = PiCameraSource(picam2, _pi_sensor_model(Picamera2, index))
+        log.info("Sensor: %s", source.sensor_model)
+        try:
+            result = source.refocus()   # autofocus once, then lock
+            if not result["ok"]:
+                log.warning("Focus not locked: %s", result["error"])
+        except Exception as err:        # a focus problem shouldn't stop the camera
+            log.warning("Autofocus step failed: %s", err)
+    except Exception:
+        picam2.close()
+        raise
+    return source
+
+
+def _picamera2_importable():
+    try:
+        import picamera2  # noqa: F401
+        return True
+    except ImportError:
+        return False
+
+
+def _open_with_retries(name, open_once, index):
+    """Call open_once(index) up to OPEN_RETRIES times. Returns a source or None."""
     for attempt in range(1, OPEN_RETRIES + 1):
-        cap = cv2.VideoCapture(index, backend)
-        if cap.isOpened():
-            log.info("Camera opened (device index %d)", index)
-            return cap
-        cap.release()
-        log.warning("Could not open camera at device index %d (attempt %d/%d)",
-                    index, attempt, OPEN_RETRIES)
+        detail = ""
+        try:
+            source = open_once(index)
+        except Exception as err:
+            source, detail = None, ": %s" % err
+        if source is not None:
+            log.info("Camera opened via %s (device index %d)", name, index)
+            return source
+        log.warning("Could not open camera at device index %d (attempt %d/%d) [%s]%s",
+                    index, attempt, OPEN_RETRIES, name, detail)
         if attempt < OPEN_RETRIES:
             time.sleep(OPEN_RETRY_DELAY_S)
 
-    log.error("No camera found at device index %d after %d attempts. "
+    log.error("No camera found at device index %d via %s after %d attempts. "
               "Check the connection, or try another index: CAMERA_INDEX=1",
-              index, OPEN_RETRIES)
+              index, name, OPEN_RETRIES)
+    return None
+
+
+def open_camera(index=CAMERA_INDEX):
+    """Open a camera per CAMERA_BACKEND. Returns a source (has read/release) or None."""
+    backends = []
+    if CAMERA_BACKEND in ("auto", "picamera2"):
+        if _picamera2_importable():
+            backends.append(("picamera2", _open_picamera2_once))
+        elif CAMERA_BACKEND == "picamera2":
+            log.error("CAMERA_BACKEND=picamera2 but picamera2 can't be imported. "
+                      "On a Raspberry Pi run: bash pi-service/setup-pi.sh")
+            return None
+    if CAMERA_BACKEND in ("auto", "opencv"):
+        backends.append(("opencv", _open_opencv_once))
+
+    for name, open_once in backends:
+        source = _open_with_retries(name, open_once, index)
+        if source is not None:
+            return source
     return None
 
 
@@ -150,14 +344,16 @@ class CameraMonitor:
         self._frame = None      # latest BGR frame
         self._result = None     # latest {confidence, status, ...} dict
         self._connected = False
+        self._source = None     # the open camera source, if any
         self._smoothed = None
 
     def start(self):
         # Open the first camera here, on the calling (main) thread: macOS only
         # shows the camera-permission prompt from the main thread. Reconnects
         # after that happen on the capture thread.
-        cap = open_camera()
-        threading.Thread(target=self._run, args=(cap,), name="capture", daemon=True).start()
+        log.info("Camera backend setting: %s", CAMERA_BACKEND)
+        source = open_camera()
+        threading.Thread(target=self._run, args=(source,), name="capture", daemon=True).start()
 
     # -- read side (called from Flask threads) --------------------------------
 
@@ -165,6 +361,19 @@ class CameraMonitor:
     def connected(self):
         with self._lock:
             return self._connected
+
+    @property
+    def sensor_model(self):
+        with self._lock:
+            return self._source.sensor_model if self._source else None
+
+    def refocus(self):
+        """Redo autofocus + lock. None if there's no autofocus-capable Pi camera."""
+        with self._lock:
+            source = self._source
+        if source is None or not hasattr(source, "refocus"):
+            return None
+        return source.refocus()
 
     def latest_result(self):
         with self._lock:
@@ -176,37 +385,38 @@ class CameraMonitor:
 
     # -- capture side ----------------------------------------------------------
 
-    def _run(self, cap):
+    def _run(self, source):
         while True:
-            if cap is None:
+            if source is None:
                 self._set_connected(False)
                 time.sleep(RECONNECT_DELAY_S)
-                cap = open_camera()
+                source = open_camera()
                 continue
 
-            self._set_connected(True)
+            self._set_connected(True, source)
             failures = 0
             while failures < MAX_READ_FAILURES:
-                ok, frame = cap.read()
-                if not ok or frame is None:
+                ok, analysis, display = source.read()
+                if not ok or analysis is None:
                     failures += 1
                     time.sleep(0.05)
                     continue
                 failures = 0
-                self._process(frame)
+                self._process(analysis, display)
 
             log.error("Lost camera at device index %d (%d failed reads); reconnecting",
                       CAMERA_INDEX, MAX_READ_FAILURES)
-            cap.release()
-            cap = None
             self._set_connected(False)
+            source.release()
+            source = None
 
-    def _set_connected(self, value):
+    def _set_connected(self, value, source=None):
         with self._lock:
             self._connected = value
+            self._source = source if value else None
 
-    def _process(self, frame):
-        gray = to_analysis_gray(frame)
+    def _process(self, analysis_frame, display_frame):
+        gray = to_analysis_gray(analysis_frame)
         fog = fog_score(gray)
         obstruction = obstruction_score(gray)
 
@@ -223,7 +433,7 @@ class CameraMonitor:
             "timestamp": time.time(),  # unix seconds
         }
         with self._lock:
-            self._frame = frame
+            self._frame = display_frame
             self._result = result
 
 
@@ -236,7 +446,7 @@ CORS(app)
 monitor = CameraMonitor()
 
 
-@app.get("/status")
+@app.route("/status")
 def status():
     result = monitor.latest_result()
     if result is None:
@@ -244,7 +454,7 @@ def status():
     return jsonify(result)
 
 
-@app.get("/frame.jpg")
+@app.route("/frame.jpg")
 def frame_jpg():
     frame = monitor.latest_frame()
     if frame is None:
@@ -257,9 +467,22 @@ def frame_jpg():
     return resp
 
 
-@app.get("/health")
+@app.route("/health")
 def health():
-    return jsonify(ok=True, camera_connected=monitor.connected)
+    # sensor_model is e.g. "imx708" on a Pi camera, null on the OpenCV/webcam path.
+    return jsonify(ok=True, camera_connected=monitor.connected,
+                   sensor_model=monitor.sensor_model)
+
+
+@app.route("/refocus", methods=["POST"])
+def refocus():
+    result = monitor.refocus()
+    if result is None:
+        return jsonify(ok=False, error="no Pi camera connected (refocus needs the picamera2 backend)"), 409
+    if result["ok"]:
+        return jsonify(result)
+    # 500 = autofocus ran but failed; 409 = it couldn't run at all (no AF, or busy)
+    return jsonify(result), (500 if "af_state" in result else 409)
 
 
 if __name__ == "__main__":
