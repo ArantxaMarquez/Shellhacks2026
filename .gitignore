@@ -14,6 +14,7 @@ node_modules/
 # Local IP / config files: keep machine-specific settings out of git
 .env
 .env.*
+!.env.example
 *.local
 *.local.*
 config.local.*

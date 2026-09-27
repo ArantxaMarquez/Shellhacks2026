@@ -2,3 +2,6 @@ flask
 flask-cors
 opencv-python-headless
 numpy
+python-dotenv
+twilio
+retell-sdk

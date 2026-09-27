@@ -21,12 +21,12 @@ sudo apt install -y python3-picamera2 python3-opencv python3-flask python3-pip
 if [ "$USE_VENV" = 1 ]; then
   python3 -m venv --system-site-packages venv
   source venv/bin/activate
-  python -m pip install flask-cors
+  python -m pip install flask-cors twilio python-dotenv retell-sdk
 else
   # Newer Raspberry Pi OS blocks system-wide pip unless told otherwise; older
   # pip doesn't know that flag, so fall back to a plain install.
-  python3 -m pip install flask-cors --break-system-packages \
-    || python3 -m pip install flask-cors
+  python3 -m pip install flask-cors twilio python-dotenv retell-sdk --break-system-packages \
+    || python3 -m pip install flask-cors twilio python-dotenv retell-sdk
 fi
 
 echo
