@@ -9,25 +9,139 @@
 <body>
   <h1 class="project-title">Freeze</h1>
   <main>
-    <section class="card" id="card" data-state="offline">
-      <div class="thumb">
-        <img id="frame" alt="Live camera view">
-        <div class="thumb-off">No image</div>
+    <header class="top">
+      <h1 class="gradient-text">Camera Confidence</h1>
+      <p class="sub"><span class="shiny-text">Live lens health for the road ahead</span></p>
+    </header>
+
+    <!-- Hero: the car reacts to the confidence score -->
+    <section class="hero">
+      <div class="scene" id="scene" role="img" aria-label="A car driving at night. It slows down, brakes and loses visibility in fog as camera confidence drops.">
+        <div class="layer stars" data-parallax="0.02" data-tile="240"></div>
+        <div class="horizon"></div>
+        <div class="layer skyline-far" data-parallax="0.12" data-tile="640"></div>
+        <div class="layer skyline-near" data-parallax="0.35" data-tile="560"></div>
+        <div class="road" id="road"></div>
+
+        <div class="car" id="car">
+          <div class="underglow"></div>
+          <svg class="car-svg" viewBox="0 0 300 110" aria-hidden="true">
+            <defs>
+              <linearGradient id="bodyGrad" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0" stop-color="#a6adb3"/>
+                <stop offset="0.42" stop-color="#586068"/>
+                <stop offset="1" stop-color="#22282e"/>
+              </linearGradient>
+              <linearGradient id="glassGrad" x1="0" y1="0" x2="1" y2="1">
+                <stop offset="0" stop-color="#2a4a58"/>
+                <stop offset="1" stop-color="#0a141a"/>
+              </linearGradient>
+              <linearGradient id="beamGrad" x1="0" y1="0" x2="1" y2="0">
+                <stop offset="0" stop-color="#fff3c4" stop-opacity="0.8"/>
+                <stop offset="1" stop-color="#fff3c4" stop-opacity="0"/>
+              </linearGradient>
+              <radialGradient id="glowGrad">
+                <stop offset="0" stop-color="currentColor"/>
+                <stop offset="1" stop-color="currentColor" stop-opacity="0"/>
+              </radialGradient>
+              <clipPath id="bodyClip">
+                <path d="M12 84 L12 70 C12 62 18 58 28 56 L64 51 C78 34 100 26 130 26 L172 26 C198 26 222 40 240 52 L272 58 C284 61 290 68 290 78 L290 84 C290 87 288 88 284 88 L16 88 C13 88 12 87 12 84 Z"/>
+              </clipPath>
+            </defs>
+
+            <ellipse cx="150" cy="100" rx="132" ry="6" fill="#000" opacity="0.55"/>
+
+            <!-- headlight beam -->
+            <polygon id="beam" points="280,66 560,18 560,120 280,76" fill="url(#beamGrad)" opacity="0.4"/>
+            <!-- tail light halo (colour + strength set from JS) -->
+            <circle id="tailGlow" cx="14" cy="67" r="46" fill="url(#glowGrad)" opacity="0"/>
+
+            <!-- rear spoiler -->
+            <path d="M14 55 L36 52 L36 55 L11 60 Z" fill="#1c2126"/>
+            <!-- body -->
+            <path d="M12 84 L12 70 C12 62 18 58 28 56 L64 51 C78 34 100 26 130 26 L172 26 C198 26 222 40 240 52 L272 58 C284 61 290 68 290 78 L290 84 C290 87 288 88 284 88 L16 88 C13 88 12 87 12 84 Z" fill="url(#bodyGrad)"/>
+            <!-- windows -->
+            <path d="M74 51 C86 38 104 31 130 31 L172 31 C192 31 210 42 226 52 Z" fill="url(#glassGrad)"/>
+            <path d="M92 47 L112 33 L124 33 L104 47 Z" fill="#fff" opacity="0.10"/>
+            <path d="M152 31 L152 52" stroke="#4a545c" stroke-width="4"/>
+            <!-- body lines -->
+            <path d="M24 62 L268 64" stroke="#fff" stroke-opacity="0.3" stroke-width="1.2" fill="none"/>
+            <path d="M104 54 L102 84 M198 54 L202 84" stroke="#000" stroke-opacity="0.35" stroke-width="1.2" fill="none"/>
+            <path d="M228 52 L241 52 L238 58 L228 57 Z" fill="#3a4248"/>
+            <!-- wheel arches -->
+            <g clip-path="url(#bodyClip)">
+              <circle cx="68" cy="84" r="24" fill="#06070a"/>
+              <circle cx="236" cy="84" r="24" fill="#06070a"/>
+            </g>
+            <!-- headlight + tail light -->
+            <path d="M270 62 L289 66 L289 73 L268 70 Z" fill="#fff6d0"/>
+            <rect id="brake" x="10" y="62" width="9" height="10" rx="3"/>
+
+            <!-- wheels (rim group rotates from JS) -->
+            <g transform="translate(68 84)">
+              <circle r="19" fill="#0b0c10"/>
+              <circle r="15" fill="#161a1e"/>
+              <g class="wheel-spin">
+                <circle r="11" fill="#2a3036" stroke="#b0b6bb" stroke-width="1.5"/>
+                <path d="M0 0 L0 -11 M0 0 L10.5 -3.4 M0 0 L6.5 8.9 M0 0 L-6.5 8.9 M0 0 L-10.5 -3.4" stroke="#8a9197" stroke-width="2.2"/>
+              </g>
+              <circle r="3.4" fill="#c8cdd0"/>
+            </g>
+            <g transform="translate(236 84)">
+              <circle r="19" fill="#0b0c10"/>
+              <circle r="15" fill="#161a1e"/>
+              <g class="wheel-spin">
+                <circle r="11" fill="#2a3036" stroke="#b0b6bb" stroke-width="1.5"/>
+                <path d="M0 0 L0 -11 M0 0 L10.5 -3.4 M0 0 L6.5 8.9 M0 0 L-6.5 8.9 M0 0 L-10.5 -3.4" stroke="#8a9197" stroke-width="2.2"/>
+              </g>
+              <circle r="3.4" fill="#c8cdd0"/>
+            </g>
+          </svg>
+        </div>
+
+        <div class="layer streak s1" data-parallax="2.4" data-tile="420"></div>
+        <div class="layer streak s2" data-parallax="3.1" data-tile="560"></div>
+        <div class="layer streak s3" data-parallax="1.9" data-tile="340"></div>
+
+        <div class="fog" id="fog"></div>
+        <div class="vignette"></div>
+
+        <div class="hud">
+          <div>
+            <span class="speed-label shiny-text">Speed</span>
+            <div class="speed"><span id="mph">--</span><span class="speed-unit">mph</span></div>
+          </div>
+          <div class="star-border">
+            <div class="border-gradient-bottom"></div>
+            <div class="border-gradient-top"></div>
+            <div class="inner-content" id="hud-status">Offline</div>
+          </div>
+        </div>
       </div>
+    </section>
 
-      <div class="readout">
-        <div class="head">
-          <span class="label">Camera confidence</span>
-          <span class="badge" id="badge">Offline</span>
+    <!-- Camera + confidence readout -->
+    <section class="info">
+      <div class="card card-spotlight" id="card" data-state="offline">
+        <div class="thumb">
+          <img id="frame" alt="Live camera view">
+          <div class="thumb-off">No image</div>
         </div>
 
-        <div class="value"><span id="pct">--</span><span class="unit" id="unit"></span></div>
+        <div class="readout">
+          <div class="head">
+            <span class="label">Camera confidence</span>
+            <span class="badge" id="badge">Offline</span>
+          </div>
 
-        <div class="bar" role="progressbar" aria-valuemin="0" aria-valuemax="100" id="bar-track">
-          <div class="bar-fill" id="bar"></div>
+          <div class="value"><span id="pct">--</span><span class="unit" id="unit"></span></div>
+
+          <div class="bar" role="progressbar" aria-valuemin="0" aria-valuemax="100" id="bar-track">
+            <div class="bar-fill" id="bar"></div>
+          </div>
+
+          <p class="caption" id="caption" aria-live="polite">Connecting to sensor…</p>
         </div>
-
-        <p class="caption" id="caption" aria-live="polite">Connecting to sensor…</p>
       </div>
     </section>
 

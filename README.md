@@ -3,7 +3,7 @@
 Scores how clear a camera image is (0-100) and shows it in a web page.
 
 - `pi-service/` – Python Flask service. Reads the camera, scores frames, serves JSON + a JPEG.
-- `web/` – plain HTML/CSS/JS frontend. No build step, no framework: open `index.html` or serve the folder.
+- `web/` – plain HTML/CSS/JS frontend. No build step, no framework: open `index.html` or serve the folder. A car in the middle of the page reacts to the confidence score: it slows, brakes and drives into fog as the camera gets worse.
 
 The same service runs on a Raspberry Pi camera (via `picamera2`) and on a laptop webcam (via OpenCV). Only frame capture differs; the scoring is identical.
 
@@ -194,3 +194,9 @@ All knobs are constants in the block at the top of [`pi-service/camera_service.p
 | Bright blank walls flagged as obstruction | Raise `COVERED_MIN_BRIGHTNESS`, lower `COVERED_MAX_STDDEV`, or raise `COVERED_FRAME_FRACTION` |
 | Score too twitchy / too laggy | Lower / raise `SMOOTHING` (1.0 = off) |
 | Status cutoffs | `CLEAR_MIN`, `DEGRADED_MIN` |
+
+## Credits
+
+Some UI effects in `web/` are plain-JS/CSS ports of [React Bits](https://reactbits.dev) components: SpotlightCard, ShinyText, GradientText, CountUp and StarBorder. The background glow and film grain are lightweight CSS versions inspired by React Bits' Aurora and Noise. Check React Bits' license before reusing this outside the hackathon.
+
+Fonts are Barlow and Barlow Condensed (SIL Open Font License, see `web/fonts/OFL.txt`), self-hosted in `web/fonts/` so the dashboard looks the same offline.

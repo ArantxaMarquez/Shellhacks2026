@@ -1,4 +1,12 @@
-/* All colors live here. Change the palette in this one block. */
+/* Self-hosted fonts (SIL Open Font License, see fonts/OFL.txt) */
+@font-face { font-family: "Barlow Condensed"; font-weight: 500; font-display: swap; src: url("fonts/barlow-condensed-500.woff2") format("woff2"); }
+@font-face { font-family: "Barlow Condensed"; font-weight: 600; font-display: swap; src: url("fonts/barlow-condensed-600.woff2") format("woff2"); }
+@font-face { font-family: "Barlow Condensed"; font-weight: 700; font-display: swap; src: url("fonts/barlow-condensed-700.woff2") format("woff2"); }
+@font-face { font-family: "Barlow"; font-weight: 400; font-display: swap; src: url("fonts/barlow-400.woff2") format("woff2"); }
+@font-face { font-family: "Barlow"; font-weight: 500; font-display: swap; src: url("fonts/barlow-500.woff2") format("woff2"); }
+@font-face { font-family: "Barlow"; font-weight: 600; font-display: swap; src: url("fonts/barlow-600.woff2") format("woff2"); }
+
+/* All colors and fonts live here. Change the palette in this one block. */
 :root {
   --bg:        #415A77;   /* page background (near-black) */
   --panel:     #161a20;   /* card background (lighter) */
@@ -10,53 +18,378 @@
   --warn:      #f5a623;   /* amber: degraded (40-69) */
   --bad:       #ef4444;   /* red:   obstructed (< 40) */
   --offline:   #6b7280;   /* grey:  sensor offline */
+
+  /* car scene */
+  --car-body:  #3a4148;
+  --brake-off: #35282a;   /* tail light when not braking */
+  --lane:      rgba(238, 241, 246, 0.6);  /* road dashes */
+
+  /* gradient text / aurora: teal, ivory, sodium-lamp amber */
+  --grad-1: #2fc4bc;
+  --grad-2: #eef3e6;
+  --grad-3: #f0b055;
+}
+
+/* Lets the accent colour cross-fade when the state changes. */
+@property --accent {
+  syntax: '<color>';
+  inherits: true;
+  initial-value: #6b7280;
 }
 
 * { box-sizing: border-box; }
 
+/* body carries the current state; everything picks its accent from --accent. */
 body {
+  --accent: var(--offline);
+  transition: --accent 0.6s ease;
   margin: 0;
   min-height: 100vh;
   display: grid;
   place-items: center;
-  padding: 16px;
+  padding: 28px 16px 40px;
   background: var(--bg);
   color: var(--text);
-  font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  font-family: var(--font-body);
+  font-size: 1.0625rem;
+  overflow-x: hidden;
+}
+body[data-state="clear"]      { --accent: var(--ok); }
+body[data-state="degraded"]   { --accent: var(--warn); }
+body[data-state="obstructed"] { --accent: var(--bad); }
+body[data-state="offline"]    { --accent: var(--offline); }
+
+/* ---------- Page layout: title, hero car, info card ---------- */
+main {
+  position: relative;
+  z-index: 1;
+  width: 100%;
+  max-width: 1040px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 26px;
 }
 
-main { width: 100%; max-width: 720px; }
+.top { text-align: center; }
+.top h1 {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: clamp(2.1rem, 6vw, 3.6rem);
+  font-weight: 700;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  line-height: 1.05;
+}
+.sub { margin: 8px 0 0; font-size: 1rem; font-weight: 500; letter-spacing: 0.05em; }
 
-/* The card carries the current state; children pick their accent from --accent. */
+/* ============================================================
+   Ported from React Bits (reactbits.dev), rewritten as plain CSS/JS
+   ============================================================ */
+
+/* --- GradientText: colours slide along the text (driven from app.js) --- */
+.gradient-text {
+  display: inline-block;
+  background-image: linear-gradient(to right, var(--grad-1), var(--grad-2), var(--grad-3), var(--grad-1));
+  background-size: 300% 100%;
+  background-repeat: repeat;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+/* --- ShinyText: a highlight sweeps across the text (driven from app.js) --- */
+.shiny-text {
+  --shiny-color: #8b93a1;
+  --shiny-shine: #ffffff;
+  display: inline-block;
+  background-image: linear-gradient(120deg, var(--shiny-color) 0%, var(--shiny-color) 35%, var(--shiny-shine) 50%, var(--shiny-color) 65%, var(--shiny-color) 100%);
+  background-size: 200% auto;
+  background-position: 150% center;
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+/* --- SpotlightCard: a soft light follows the cursor (mouse position set from app.js) --- */
+.card-spotlight {
+  position: relative;
+  overflow: hidden;
+  --mouse-x: 50%;
+  --mouse-y: 50%;
+  --spotlight-color: color-mix(in srgb, var(--accent) 34%, transparent);
+}
+.card-spotlight::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(circle at var(--mouse-x) var(--mouse-y), var(--spotlight-color), transparent 80%);
+  opacity: 0;
+  transition: opacity 0.5s ease;
+  pointer-events: none;
+}
+.card-spotlight:hover::before,
+.card-spotlight:focus-within::before { opacity: 0.6; }
+
+/* --- StarBorder: two glowing dots orbit the pill's edge (colour = current state) --- */
+.star-border {
+  display: inline-block;
+  position: relative;
+  border-radius: 999px;
+  overflow: hidden;
+  padding: 1px 0;
+}
+.star-border .border-gradient-bottom,
+.star-border .border-gradient-top {
+  position: absolute;
+  width: 300%;
+  height: 50%;
+  opacity: 0.7;
+  border-radius: 50%;
+  background: radial-gradient(circle, var(--accent), transparent 10%);
+  animation: star-movement 5s linear infinite alternate;
+  z-index: 0;
+}
+.star-border .border-gradient-bottom { bottom: -12px; right: -250%; }
+.star-border .border-gradient-top    { top: -12px;    left: -250%; animation-name: star-movement-top; }
+.star-border .inner-content {
+  position: relative;
+  z-index: 1;
+  padding: 7px 18px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 999px;
+  background: rgba(6, 9, 12, 0.88);
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  text-align: center;
+  min-width: 118px;
+  font-family: var(--font-display);
+  font-size: 0.95rem;
+}
+@keyframes star-movement     { 0% { transform: translate(0, 0); opacity: 1; } 100% { transform: translate(-100%, 0); opacity: 0; } }
+@keyframes star-movement-top { 0% { transform: translate(0, 0); opacity: 1; } 100% { transform: translate(100%, 0);  opacity: 0; } }
+
+/* --- Aurora (CSS approximation of the WebGL original): soft drifting colour, tinted by state --- */
+.aurora {
+  position: fixed;
+  inset: 0;
+  overflow: hidden;
+  z-index: 0;
+  pointer-events: none;
+}
+.aurora i {
+  position: absolute;
+  width: 55vmax;
+  height: 55vmax;
+  border-radius: 50%;
+  filter: blur(90px);
+  opacity: 0.32;
+  animation: aurora-drift 26s ease-in-out infinite alternate;
+}
+.aurora i:nth-child(1) { background: var(--accent);  top: -30vmax; left: -15vmax; }
+.aurora i:nth-child(2) { background: var(--grad-1);  top: 5vmax;  right: -25vmax; animation-duration: 32s; animation-delay: -8s; opacity: 0.26; }
+.aurora i:nth-child(3) { background: var(--grad-3);  bottom: -35vmax; left: 15vmax; animation-duration: 38s; animation-delay: -15s; opacity: 0.16; }
+@keyframes aurora-drift {
+  0%   { transform: translate(0, 0) scale(1); }
+  50%  { transform: translate(6vmax, 4vmax) scale(1.12); }
+  100% { transform: translate(-4vmax, 8vmax) scale(0.94); }
+}
+
+/* --- Noise (CSS approximation): film grain over the whole page --- */
+.grain {
+  position: fixed;
+  inset: -50%;
+  z-index: 3;
+  pointer-events: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 0 0 0 .55 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url%28%23n%29'/%3E%3C/svg%3E");
+  background-size: 160px 160px;
+  opacity: 0.06;
+  animation: grain-shift 0.9s steps(1) infinite;
+}
+@keyframes grain-shift {
+  0%   { transform: translate(0, 0); }
+  25%  { transform: translate(-6%, 4%); }
+  50%  { transform: translate(5%, -7%); }
+  75%  { transform: translate(-3%, -4%); }
+}
+
+/* ============================================================
+   Hero: the car scene
+   ============================================================ */
+.hero { width: 100%; }
+
+.scene {
+  position: relative;
+  width: 100%;
+  height: clamp(270px, 42vw, 430px);
+  overflow: hidden;
+  border-radius: 28px;
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  background: linear-gradient(180deg, #04070b 0%, #08141d 50%, #10303a 76%, #3a2f22 100%);
+  box-shadow:
+    0 0 0 1px rgba(0, 0, 0, 0.6),
+    0 40px 90px -30px color-mix(in srgb, var(--accent) 55%, transparent),
+    0 20px 50px -20px rgba(0, 0, 0, 0.8);
+}
+
+.scene .layer {
+  position: absolute;
+  left: 0;
+  right: 0;
+  background-repeat: repeat-x;
+  pointer-events: none;
+}
+
+/* Moon */
+.scene::before {
+  content: '';
+  position: absolute;
+  top: 9%;
+  right: 27%;
+  width: clamp(34px, 5.5vw, 58px);
+  aspect-ratio: 1;
+  border-radius: 50%;
+  background: radial-gradient(circle at 35% 35%, #fffdf2, #e9e4c8 60%, #cfc9a8);
+  box-shadow: 0 0 40px 12px rgba(255, 250, 220, 0.25), 0 0 120px 40px rgba(150, 215, 220, 0.12);
+}
+
+.horizon {
+  position: absolute;
+  left: 0; right: 0;
+  top: 30%;
+  height: 40%;
+  background: radial-gradient(ellipse at 50% 100%, color-mix(in srgb, var(--accent) 38%, transparent), transparent 68%);
+  pointer-events: none;
+}
+
+.stars       { top: 0; height: 68%; background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='240' height='200'%3E%3Ccircle cx='77.7' cy='30.2' r='1.02' fill='white' opacity='0.30'/%3E%3Ccircle cx='128.6' cy='73.1' r='0.55' fill='white' opacity='0.58'/%3E%3Ccircle cx='9.0' cy='86.7' r='0.56' fill='white' opacity='0.31'/%3E%3Ccircle cx='101.9' cy='165.4' r='0.60' fill='white' opacity='0.40'/%3E%3Ccircle cx='150.6' cy='189.5' r='0.96' fill='white' opacity='0.51'/%3E%3Ccircle cx='234.3' cy='9.3' r='1.19' fill='white' opacity='0.44'/%3E%3Ccircle cx='34.6' cy='23.6' r='0.75' fill='white' opacity='0.78'/%3E%3Ccircle cx='43.4' cy='116.3' r='1.01' fill='white' opacity='0.49'/%3E%3Ccircle cx='131.5' cy='12.6' r='0.55' fill='white' opacity='0.38'/%3E%3Ccircle cx='163.3' cy='85.5' r='0.75' fill='white' opacity='0.63'/%3E%3Ccircle cx='108.8' cy='60.0' r='1.14' fill='white' opacity='0.70'/%3E%3Ccircle cx='58.6' cy='114.9' r='0.92' fill='white' opacity='0.82'/%3E%3Ccircle cx='175.1' cy='57.6' r='1.28' fill='white' opacity='0.33'/%3E%3Ccircle cx='100.3' cy='151.4' r='0.62' fill='white' opacity='0.57'/%3E%3Ccircle cx='9.4' cy='133.6' r='1.11' fill='white' opacity='0.62'/%3E%3Ccircle cx='210.1' cy='62.7' r='1.06' fill='white' opacity='0.64'/%3E%3Ccircle cx='139.2' cy='91.2' r='1.17' fill='white' opacity='0.86'/%3E%3Ccircle cx='113.8' cy='132.8' r='0.55' fill='white' opacity='0.71'/%3E%3Ccircle cx='155.3' cy='198.6' r='1.16' fill='white' opacity='0.43'/%3E%3Ccircle cx='92.6' cy='133.7' r='0.52' fill='white' opacity='0.55'/%3E%3Ccircle cx='40.3' cy='23.4' r='0.55' fill='white' opacity='0.75'/%3E%3Ccircle cx='31.0' cy='49.5' r='0.81' fill='white' opacity='0.82'/%3E%3Ccircle cx='19.3' cy='89.8' r='0.94' fill='white' opacity='0.82'/%3E%3Ccircle cx='196.6' cy='172.8' r='0.72' fill='white' opacity='0.52'/%3E%3Ccircle cx='86.1' cy='176.8' r='1.27' fill='white' opacity='0.35'/%3E%3Ccircle cx='42.3' cy='46.4' r='0.69' fill='white' opacity='0.57'/%3E%3Ccircle cx='141.4' cy='52.5' r='0.50' fill='white' opacity='0.52'/%3E%3Ccircle cx='88.6' cy='113.3' r='1.26' fill='white' opacity='0.70'/%3E%3Ccircle cx='123.7' cy='123.5' r='1.04' fill='white' opacity='0.29'/%3E%3Ccircle cx='215.9' cy='156.0' r='1.20' fill='white' opacity='0.77'/%3E%3Ccircle cx='94.2' cy='79.8' r='0.58' fill='white' opacity='0.66'/%3E%3Ccircle cx='14.9' cy='13.5' r='0.67' fill='white' opacity='0.36'/%3E%3Ccircle cx='81.6' cy='10.5' r='0.50' fill='white' opacity='0.35'/%3E%3Ccircle cx='24.4' cy='72.7' r='0.52' fill='white' opacity='0.82'/%3E%3C/svg%3E"); background-size: 240px 200px; opacity: 0.85; }
+.skyline-far { bottom: 32%; height: 150px; background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='640' height='150'%3E%3Crect x='0' y='39' width='54' height='111' fill='%230e1c28'/%3E%3Crect x='14' y='71' width='3' height='5' fill='%23f3c26b' opacity='0.65'/%3E%3Crect x='23' y='95' width='3' height='5' fill='%23f3c26b' opacity='0.37'/%3E%3Crect x='32' y='107' width='3' height='5' fill='%23f3c26b' opacity='0.40'/%3E%3Crect x='41' y='71' width='3' height='5' fill='%23f3c26b' opacity='0.49'/%3E%3Crect x='41' y='107' width='3' height='5' fill='%23f3c26b' opacity='0.66'/%3E%3Crect x='41' y='119' width='3' height='5' fill='%23f3c26b' opacity='0.41'/%3E%3Crect x='54' y='108' width='30' height='42' fill='%230e1c28'/%3E%3Crect x='59' y='128' width='3' height='5' fill='%23f3c26b' opacity='0.47'/%3E%3Crect x='77' y='116' width='3' height='5' fill='%23f3c26b' opacity='0.70'/%3E%3Crect x='84' y='71' width='31' height='79' fill='%230e1c28'/%3E%3Crect x='89' y='115' width='3' height='5' fill='%23f3c26b' opacity='0.49'/%3E%3Crect x='89' y='127' width='3' height='5' fill='%23f3c26b' opacity='0.38'/%3E%3Crect x='98' y='139' width='3' height='5' fill='%23f3c26b' opacity='0.70'/%3E%3Crect x='107' y='79' width='3' height='5' fill='%23f3c26b' opacity='0.58'/%3E%3Crect x='115' y='84' width='27' height='66' fill='%230e1c28'/%3E%3Crect x='120' y='140' width='3' height='5' fill='%23f3c26b' opacity='0.43'/%3E%3Crect x='129' y='104' width='3' height='5' fill='%23f3c26b' opacity='0.69'/%3E%3Crect x='129' y='140' width='3' height='5' fill='%23f3c26b' opacity='0.46'/%3E%3Crect x='142' y='109' width='41' height='41' fill='%230e1c28'/%3E%3Crect x='165' y='141' width='3' height='5' fill='%23f3c26b' opacity='0.85'/%3E%3Crect x='183' y='23' width='38' height='127' fill='%230e1c28'/%3E%3Crect x='188' y='79' width='3' height='5' fill='%23f3c26b' opacity='0.37'/%3E%3Crect x='197' y='79' width='3' height='5' fill='%23f3c26b' opacity='0.48'/%3E%3Crect x='206' y='43' width='3' height='5' fill='%23f3c26b' opacity='0.50'/%3E%3Crect x='206' y='67' width='3' height='5' fill='%23f3c26b' opacity='0.45'/%3E%3Crect x='206' y='103' width='3' height='5' fill='%23f3c26b' opacity='0.55'/%3E%3Crect x='221' y='36' width='59' height='114' fill='%230e1c28'/%3E%3Crect x='226' y='116' width='3' height='5' fill='%23f3c26b' opacity='0.68'/%3E%3Crect x='226' y='128' width='3' height='5' fill='%23f3c26b' opacity='0.39'/%3E%3Crect x='235' y='44' width='3' height='5' fill='%23f3c26b' opacity='0.39'/%3E%3Crect x='235' y='80' width='3' height='5' fill='%23f3c26b' opacity='0.86'/%3E%3Crect x='235' y='104' width='3' height='5' fill='%23f3c26b' opacity='0.88'/%3E%3Crect x='235' y='128' width='3' height='5' fill='%23f3c26b' opacity='0.61'/%3E%3Crect x='235' y='140' width='3' height='5' fill='%23f3c26b' opacity='0.82'/%3E%3Crect x='244' y='56' width='3' height='5' fill='%23f3c26b' opacity='0.62'/%3E%3Crect x='244' y='68' width='3' height='5' fill='%23f3c26b' opacity='0.71'/%3E%3Crect x='244' y='92' width='3' height='5' fill='%23f3c26b' opacity='0.39'/%3E%3Crect x='244' y='104' width='3' height='5' fill='%23f3c26b' opacity='0.41'/%3E%3Crect x='253' y='140' width='3' height='5' fill='%23f3c26b' opacity='0.36'/%3E%3Crect x='262' y='56' width='3' height='5' fill='%23f3c26b' opacity='0.78'/%3E%3Crect x='262' y='116' width='3' height='5' fill='%23f3c26b' opacity='0.69'/%3E%3Crect x='280' y='83' width='38' height='67' fill='%230e1c28'/%3E%3Crect x='285' y='127' width='3' height='5' fill='%23f3c26b' opacity='0.62'/%3E%3Crect x='318' y='24' width='57' height='126' fill='%230e1c28'/%3E%3Crect x='323' y='80' width='3' height='5' fill='%23f3c26b' opacity='0.37'/%3E%3Crect x='323' y='104' width='3' height='5' fill='%23f3c26b' opacity='0.74'/%3E%3Crect x='332' y='32' width='3' height='5' fill='%23f3c26b' opacity='0.42'/%3E%3Crect x='332' y='56' width='3' height='5' fill='%23f3c26b' opacity='0.81'/%3E%3Crect x='332' y='80' width='3' height='5' fill='%23f3c26b' opacity='0.38'/%3E%3Crect x='341' y='92' width='3' height='5' fill='%23f3c26b' opacity='0.61'/%3E%3Crect x='350' y='116' width='3' height='5' fill='%23f3c26b' opacity='0.86'/%3E%3Crect x='350' y='140' width='3' height='5' fill='%23f3c26b' opacity='0.60'/%3E%3Crect x='375' y='77' width='46' height='73' fill='%230e1c28'/%3E%3Crect x='380' y='121' width='3' height='5' fill='%23f3c26b' opacity='0.59'/%3E%3Crect x='389' y='109' width='3' height='5' fill='%23f3c26b' opacity='0.80'/%3E%3Crect x='389' y='121' width='3' height='5' fill='%23f3c26b' opacity='0.79'/%3E%3Crect x='398' y='109' width='3' height='5' fill='%23f3c26b' opacity='0.43'/%3E%3Crect x='421' y='82' width='31' height='68' fill='%230e1c28'/%3E%3Crect x='444' y='126' width='3' height='5' fill='%23f3c26b' opacity='0.65'/%3E%3Crect x='452' y='85' width='57' height='65' fill='%230e1c28'/%3E%3Crect x='457' y='105' width='3' height='5' fill='%23f3c26b' opacity='0.35'/%3E%3Crect x='457' y='141' width='3' height='5' fill='%23f3c26b' opacity='0.85'/%3E%3Crect x='466' y='117' width='3' height='5' fill='%23f3c26b' opacity='0.40'/%3E%3Crect x='493' y='105' width='3' height='5' fill='%23f3c26b' opacity='0.58'/%3E%3Crect x='493' y='117' width='3' height='5' fill='%23f3c26b' opacity='0.49'/%3E%3Crect x='502' y='93' width='3' height='5' fill='%23f3c26b' opacity='0.44'/%3E%3Crect x='502' y='105' width='3' height='5' fill='%23f3c26b' opacity='0.51'/%3E%3Crect x='509' y='36' width='57' height='114' fill='%230e1c28'/%3E%3Crect x='514' y='44' width='3' height='5' fill='%23f3c26b' opacity='0.63'/%3E%3Crect x='514' y='140' width='3' height='5' fill='%23f3c26b' opacity='0.46'/%3E%3Crect x='532' y='128' width='3' height='5' fill='%23f3c26b' opacity='0.48'/%3E%3Crect x='541' y='56' width='3' height='5' fill='%23f3c26b' opacity='0.81'/%3E%3Crect x='541' y='92' width='3' height='5' fill='%23f3c26b' opacity='0.57'/%3E%3Crect x='541' y='116' width='3' height='5' fill='%23f3c26b' opacity='0.46'/%3E%3Crect x='550' y='56' width='3' height='5' fill='%23f3c26b' opacity='0.63'/%3E%3Crect x='550' y='116' width='3' height='5' fill='%23f3c26b' opacity='0.41'/%3E%3Crect x='550' y='128' width='3' height='5' fill='%23f3c26b' opacity='0.65'/%3E%3Crect x='559' y='56' width='3' height='5' fill='%23f3c26b' opacity='0.45'/%3E%3Crect x='559' y='116' width='3' height='5' fill='%23f3c26b' opacity='0.38'/%3E%3Crect x='566' y='69' width='32' height='81' fill='%230e1c28'/%3E%3Crect x='580' y='77' width='3' height='5' fill='%23f3c26b' opacity='0.46'/%3E%3Crect x='589' y='77' width='3' height='5' fill='%23f3c26b' opacity='0.79'/%3E%3Crect x='589' y='101' width='3' height='5' fill='%23f3c26b' opacity='0.81'/%3E%3Crect x='598' y='46' width='38' height='104' fill='%230e1c28'/%3E%3Crect x='603' y='102' width='3' height='5' fill='%23f3c26b' opacity='0.76'/%3E%3Crect x='603' y='138' width='3' height='5' fill='%23f3c26b' opacity='0.53'/%3E%3Crect x='621' y='54' width='3' height='5' fill='%23f3c26b' opacity='0.84'/%3E%3Crect x='621' y='90' width='3' height='5' fill='%23f3c26b' opacity='0.50'/%3E%3Crect x='636' y='42' width='4' height='108' fill='%230e1c28'/%3E%3C/svg%3E"); background-size: 640px 150px; opacity: 0.95; }
+.skyline-near{ bottom: 32%; height: 120px; background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='560' height='120'%3E%3Crect x='0' y='86' width='48' height='34' fill='%23060c12'/%3E%3Crect x='5' y='94' width='3' height='5' fill='%23f3c26b' opacity='0.52'/%3E%3Crect x='23' y='106' width='3' height='5' fill='%23f3c26b' opacity='0.69'/%3E%3Crect x='48' y='31' width='31' height='89' fill='%23060c12'/%3E%3Crect x='53' y='87' width='3' height='5' fill='%23f3c26b' opacity='0.55'/%3E%3Crect x='79' y='55' width='64' height='65' fill='%23060c12'/%3E%3Crect x='129' y='75' width='3' height='5' fill='%23f3c26b' opacity='0.70'/%3E%3Crect x='143' y='68' width='30' height='52' fill='%23060c12'/%3E%3Crect x='173' y='63' width='34' height='57' fill='%23060c12'/%3E%3Crect x='207' y='40' width='30' height='80' fill='%23060c12'/%3E%3Crect x='230' y='108' width='3' height='5' fill='%23f3c26b' opacity='0.43'/%3E%3Crect x='237' y='41' width='65' height='79' fill='%23060c12'/%3E%3Crect x='251' y='97' width='3' height='5' fill='%23f3c26b' opacity='0.56'/%3E%3Crect x='302' y='44' width='50' height='76' fill='%23060c12'/%3E%3Crect x='352' y='36' width='66' height='84' fill='%23060c12'/%3E%3Crect x='357' y='44' width='3' height='5' fill='%23f3c26b' opacity='0.79'/%3E%3Crect x='375' y='104' width='3' height='5' fill='%23f3c26b' opacity='0.69'/%3E%3Crect x='418' y='38' width='49' height='82' fill='%23060c12'/%3E%3Crect x='432' y='58' width='3' height='5' fill='%23f3c26b' opacity='0.57'/%3E%3Crect x='467' y='73' width='68' height='47' fill='%23060c12'/%3E%3Crect x='499' y='81' width='3' height='5' fill='%23f3c26b' opacity='0.56'/%3E%3Crect x='535' y='88' width='25' height='32' fill='%23060c12'/%3E%3C/svg%3E"); background-size: 560px 120px; }
+
+/* Ground + dashed centre line. JS scrolls background-position-x. */
+.road {
+  --road-tile: 90px;   /* one dash + one gap; JS reads this to wrap the scroll */
+  position: absolute;
+  left: 0; right: 0;
+  top: 68%;
+  bottom: 0;
+  background-color: #12171c;
+  background-image:
+    repeating-linear-gradient(90deg, var(--lane) 0 calc(var(--road-tile) / 2), transparent 0 var(--road-tile)),
+    linear-gradient(180deg, #222a31 0%, #12171c 22%, #0a0e11 100%);
+  background-size: var(--road-tile) 5px, 100% 100%;
+  background-repeat: repeat-x, no-repeat;
+  background-position: 0 62%, 0 0;
+  box-shadow: inset 0 2px 0 color-mix(in srgb, var(--accent) 70%, transparent), 0 -1px 24px color-mix(in srgb, var(--accent) 35%, transparent);
+}
+
+/* Speed streaks in front of everything on the ground. Opacity set from JS. */
+.streak {
+  height: 2px;
+  opacity: calc(var(--speedlines, 0) * 0.6);
+  background-image: linear-gradient(90deg, rgba(255, 255, 255, 0.9), transparent 38%);
+  background-size: 420px 2px;
+}
+.streak.s1 { top: 76%; }
+.streak.s2 { top: 85%; background-size: 560px 2px; }
+.streak.s3 { top: 93%; background-size: 340px 2px; }
+
+/* The car (SVG, facing right; the rear/brake light is on the left) */
+.car {
+  --car-w: clamp(230px, 46%, 470px);
+  position: absolute;
+  left: calc(50% - var(--car-w) / 2);   /* dead centre */
+  bottom: calc(32% - 26px);
+  width: var(--car-w);
+  transform-origin: 50% 92%;
+  z-index: 2;
+}
+.car-svg { display: block; width: 100%; height: auto; overflow: visible; }
+.underglow {
+  position: absolute;
+  left: 4%; right: 4%;
+  bottom: -8px;
+  height: 26px;
+  background: radial-gradient(ellipse at 50% 50%, color-mix(in srgb, var(--accent) 65%, transparent), transparent 70%);
+  filter: blur(6px);
+  opacity: 0.55;
+}
+#brake { fill: var(--brake-off); transition: fill 0.3s ease, filter 0.3s ease; }
+#tailGlow { transition: opacity 0.3s ease; }
+
+/* Opacity and blur are set from JS every frame. */
+.fog {
+  position: absolute;
+  inset: 0;
+  z-index: 4;
+  background: var(--text);
+  opacity: 0;
+  pointer-events: none;
+}
+.vignette {
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  pointer-events: none;
+  background: radial-gradient(ellipse at 50% 55%, transparent 55%, rgba(0, 0, 0, 0.55) 100%);
+}
+
+/* Speed HUD (sits above the fog so it stays readable) */
+.hud {
+  position: absolute;
+  z-index: 6;
+  top: 18px; left: 22px; right: 22px;
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+  pointer-events: none;
+}
+.speed-label {
+  display: block;
+  font-family: var(--font-display);
+  font-size: 0.95rem;
+  font-weight: 600;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  margin-bottom: 2px;
+}
+.speed {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  font-variant-numeric: tabular-nums;
+  text-shadow: 0 2px 24px rgba(0, 0, 0, 0.6);
+}
+#mph { font-family: var(--font-display); font-size: clamp(3.4rem, 8.5vw, 5.8rem); font-weight: 700; line-height: 0.9; letter-spacing: 0.01em; min-width: 2ch; }
+.speed-unit { font-family: var(--font-display); color: var(--text-dim); font-size: 1.15rem; font-weight: 600; letter-spacing: 0.14em; text-transform: uppercase; }
+
+/* ============================================================
+   Info card (camera thumbnail + confidence readout)
+   ============================================================ */
+.info { width: 100%; max-width: 820px; }
+
 .card {
-  --accent: var(--offline);
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   gap: 20px;
   padding: 20px;
-  background: var(--panel);
-  border-radius: 16px;
-  border: 1px solid rgba(255, 255, 255, 0.06);
+  background: color-mix(in srgb, var(--panel) 88%, transparent);
+  -webkit-backdrop-filter: blur(14px);
+  backdrop-filter: blur(14px);
+  border-radius: 20px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
 }
-.card[data-state="clear"]      { --accent: var(--ok); }
-.card[data-state="degraded"]   { --accent: var(--warn); }
-.card[data-state="obstructed"] { --accent: var(--bad); }
-.card[data-state="offline"]    { --accent: var(--offline); }
 
-/* Camera thumbnail */
 .thumb {
   position: relative;
   aspect-ratio: 4 / 3;
   background: var(--panel-alt);
-  border-radius: 10px;
+  border-radius: 12px;
   overflow: hidden;
 }
-.thumb img {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-  display: block;
-}
+.thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
 .thumb-off {
   position: absolute;
   inset: 0;
@@ -68,66 +401,60 @@ main { width: 100%; max-width: 720px; }
 .card[data-state="offline"] .thumb img { display: none; }
 .card[data-state="offline"] .thumb-off { display: grid; }
 
-/* Readout */
 .readout { display: flex; flex-direction: column; justify-content: center; min-width: 0; }
 
-.head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-}
+.head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .label {
+  font-family: var(--font-display);
   color: var(--text-dim);
-  font-size: 0.8rem;
+  font-size: 1rem;
+  font-weight: 600;
   text-transform: uppercase;
-  letter-spacing: 0.08em;
+  letter-spacing: 0.14em;
 }
 .badge {
-  padding: 3px 10px;
+  padding: 2px 11px;
   border-radius: 999px;
-  font-size: 0.75rem;
-  font-weight: 600;
+  font-family: var(--font-display);
+  font-size: 0.9rem;
+  font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.06em;
   color: #1B263B;
   background: var(--accent);
-  transition: background-color 0.3s ease;
 }
 
 .value {
   margin: 8px 0 12px;
-  font-size: clamp(3rem, 12vw, 4.75rem);
+  font-family: var(--font-display);
+  font-size: clamp(3.6rem, 13vw, 5.6rem);
   font-weight: 700;
-  line-height: 1;
+  line-height: 0.95;
   font-variant-numeric: tabular-nums;
 }
 .unit { font-size: 0.45em; color: var(--text-dim); margin-left: 2px; }
 
-.bar {
-  height: 12px;
-  background: var(--panel-alt);
-  border-radius: 999px;
-  overflow: hidden;
-}
+.bar { height: 12px; background: var(--panel-alt); border-radius: 999px; overflow: hidden; }
 .bar-fill {
   height: 100%;
   width: 0;
   background: var(--accent);
   border-radius: 999px;
+  box-shadow: 0 0 14px color-mix(in srgb, var(--accent) 70%, transparent);
   transition: width 0.3s ease, background-color 0.3s ease;
 }
 
-.caption {
-  margin: 14px 0 0;
-  color: var(--text-dim);
-  font-size: 0.95rem;
-  line-height: 1.4;
-}
+.caption { margin: 14px 0 0; color: var(--text-dim); font-size: 1rem; line-height: 1.4; }
 
-/* Phone width: stack image above readout */
+/* Phone width */
 @media (max-width: 560px) {
   .card { grid-template-columns: 1fr; }
+  .hud { top: 12px; left: 14px; right: 14px; }
+  .star-border .inner-content { padding: 5px 12px; min-width: 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .aurora i, .grain, .star-border .border-gradient-bottom, .star-border .border-gradient-top { animation: none; }
 }
 
 
