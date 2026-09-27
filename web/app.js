@@ -1,4 +1,4 @@
-const SERVICE_URL = 'http://localhost:5050'; // <-- point this at the Pi's IP, e.g. 'http://192.168.1.50:5050'
+const SERVICE_URL = 'http://192.168.1.109:5050'; // <-- point this at the Pi's IP, e.g. 'http://192.168.1.50:5050'
 
 const POLL_MS = 1000;          // how often to refresh status and thumbnail
 const FETCH_TIMEOUT_MS = 2500; // give up on a request after this long
