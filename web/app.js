@@ -13,6 +13,18 @@ const barTrack = document.getElementById('bar-track');
 const badge = document.getElementById('badge');
 const caption = document.getElementById('caption');
 
+// -- driving scene elements --
+const sceneCard = document.getElementById('sceneCard');
+const sceneRoad = document.getElementById('scene-road');
+const car = document.getElementById('car');
+const sceneBanner = document.getElementById('scene-banner');
+const sceneBg = document.getElementById('scene-bg');
+const sceneWeather = document.getElementById('scene-weather');
+
+// Vehicle stops on these statuses. Add 'degraded' here too if you want it to
+// react earlier/more cautiously instead of only on full obstruction.
+const STOP_ON = ['obstructed'];
+
 let lastTimestamp = null;   // service's timestamp from the last successful poll
 let lastAdvanceAt = 0;      // local time when that timestamp last changed
 let pollInFlight = false;
@@ -38,6 +50,31 @@ function render(state, confidence, text) {
   }
 }
 
+function renderScene(state, confidence = null) {
+  sceneCard.dataset.state = state;
+  const stopped = STOP_ON.includes(state) || state === 'offline';
+  const fogIntensity = typeof confidence === 'number'
+    ? Math.max(0, Math.min(1, (100 - confidence) / 100))
+    : 0;
+
+  sceneRoad.classList.toggle('paused', stopped);
+  car.classList.toggle('stopped', stopped);
+  sceneCard.classList.toggle('weather-active', fogIntensity > 0.05);
+
+  if (sceneWeather) {
+    const opacity = Math.min(1, fogIntensity * 1.2);
+    sceneWeather.classList.toggle('visible', fogIntensity > 0.05);
+    sceneWeather.style.opacity = String(opacity);
+    sceneWeather.style.filter = `blur(${fogIntensity * 1.5}px) saturate(${1 + fogIntensity * 0.65})`;
+  }
+
+  sceneBanner.classList.toggle('show', stopped && state !== 'offline');
+  if (sceneBg) {
+    if (stopped) sceneBg.pause();
+    else sceneBg.play().catch(() => {}); // autoplay can reject before first user interaction
+  }
+}
+
 function captionFor(s) {
   if (s.status === 'clear') return 'Camera view is clear.';
   // Say which check is dragging the score down.
@@ -51,6 +88,7 @@ function showOffline(reason) {
   if (!wasOffline) console.warn(`Sensor offline: ${reason}`);
   wasOffline = true;
   render('offline', null, `Sensor offline: ${reason}`);
+  renderScene('offline');
 }
 
 async function pollStatus() {
@@ -77,6 +115,7 @@ async function pollStatus() {
     if (wasOffline) console.info('Sensor back online');
     wasOffline = false;
     render(s.status, s.confidence, captionFor(s));
+    renderScene(s.status, s.confidence);
   } catch (err) {
     const reason = err.name === 'AbortError' ? 'no response from service' : err.message === 'Failed to fetch' ? 'cannot reach service' : err.message;
     showOffline(reason);
@@ -91,6 +130,7 @@ function refreshFrame() {
 }
 
 render('offline', null, 'Connecting to sensor…');
+renderScene('offline');
 pollStatus();
 refreshFrame();
 setInterval(pollStatus, POLL_MS);

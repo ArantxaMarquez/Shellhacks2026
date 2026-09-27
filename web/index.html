@@ -3,10 +3,11 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Camera Confidence</title>
+  <title>Freeze</title>
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
+  <h1 class="project-title">Freeze</h1>
   <main>
     <section class="card" id="card" data-state="offline">
       <div class="thumb">
@@ -27,6 +28,17 @@
         </div>
 
         <p class="caption" id="caption" aria-live="polite">Connecting to sensor…</p>
+      </div>
+    </section>
+
+    <!-- Driving scene: reacts to the same status the card above shows -->
+    <section class="scene-card" id="sceneCard" data-state="offline">
+      <div class="scene">
+        <video class="scene-bg" id="scene-bg" src="assets/background.mp4" autoplay loop muted playsinline></video>
+        <div class="scene-weather" id="scene-weather" aria-hidden="true"></div>
+        <img class="scene-road" id="scene-road" src="assets/road.PNG" alt="">
+        <img class="car" id="car" src="assets/car.PNG" alt="car">
+        <div class="scene-banner" id="scene-banner">STOPPED — LOW VISIBILITY</div>
       </div>
     </section>
   </main>

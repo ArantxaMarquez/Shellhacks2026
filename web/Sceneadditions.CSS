@@ -1,0 +1,176 @@
+/* --- Append this to your existing style.css --- */
+
+main {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 20px;
+  align-items: flex-start;
+}
+
+.scene-card {
+  flex: 1;
+  min-width: 280px;
+}
+
+.scene {
+  position: relative;
+  height: 260px;
+  border-radius: 12px;
+  overflow: hidden;
+  background: #0D1117; /* shows briefly before the video's first frame paints */
+}
+
+.scene-bg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.scene-road {
+  position: absolute;
+  left: 50%;
+  bottom: -12%;
+  width: 72%;
+  transform: translateX(-50%) scale(1);
+  transform-origin: 50% 100%;
+  animation: drive-pulse 1s ease-in-out infinite;
+  pointer-events: none;
+}
+.scene-road.paused { animation-play-state: paused; }
+@keyframes drive-pulse {
+  0%   { transform: translateX(-50%) scale(1); }
+  100% { transform: translateX(-50%) scale(1.05); }
+}
+
+.car {
+  position: absolute;
+  left: 50%;
+  bottom: 6%;
+  width: 24%;
+  transform: translateX(-50%) translateY(0);
+  filter: drop-shadow(0 8px 12px rgba(0,0,0,.45));
+  transition: filter .3s ease;
+  animation: car-bob 1s ease-in-out infinite;
+}
+.car.stopped {
+  filter: drop-shadow(0 8px 14px rgba(226,89,59,.55)) brightness(1.04);
+  animation-play-state: paused;
+}
+@keyframes car-bob {
+  0%, 100% { transform: translateX(-50%) translateY(0); }
+  50%      { transform: translateX(-50%) translateY(-3px); }
+}
+
+.scene-banner {
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  right: 12px;
+  padding: 8px 12px;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  text-align: center;
+  background: rgba(226,89,59,0.15);
+  border: 1px solid rgba(226,89,59,0.5);
+  color: #FFB199;
+  opacity: 0;
+  transform: translateY(-6px);
+  transition: opacity .2s, transform .2s;
+}
+.scene-banner.show { opacity: 1; transform: translateY(0); }
+
+/* --- Append this to your existing style.css --- */
+
+.project-title {
+  font-size: 22px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  color: #E8EDF2;
+  margin: 0 0 16px;
+  padding: 0 4px;
+}
+
+main {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 20px;
+  align-items: flex-start;
+}
+
+.scene-card {
+  flex: 1;
+  min-width: 280px;
+}
+
+.scene {
+  position: relative;
+  height: 260px;
+  border-radius: 12px;
+  overflow: hidden;
+  background: #0D1117; /* shows briefly before the video's first frame paints */
+}
+
+.scene-bg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.scene-road {
+  position: absolute;
+  left: 50%;
+  bottom: -12%;
+  width: 72%;
+  transform: translateX(-50%) scale(1);
+  transform-origin: 50% 100%;
+  animation: drive-pulse 1s ease-in-out infinite;
+  pointer-events: none;
+}
+.scene-road.paused { animation-play-state: paused; }
+@keyframes drive-pulse {
+  0%   { transform: translateX(-50%) scale(1); }
+  100% { transform: translateX(-50%) scale(1.05); }
+}
+
+.car {
+  position: absolute;
+  left: 50%;
+  bottom: 6%;
+  width: 24%;
+  transform: translateX(-50%) translateY(0);
+  filter: drop-shadow(0 8px 12px rgba(0,0,0,.45));
+  transition: filter .3s ease;
+  animation: car-bob 1s ease-in-out infinite;
+}
+.car.stopped {
+  filter: drop-shadow(0 8px 14px rgba(226,89,59,.55)) brightness(1.04);
+  animation-play-state: paused;
+}
+@keyframes car-bob {
+  0%, 100% { transform: translateX(-50%) translateY(0); }
+  50%      { transform: translateX(-50%) translateY(-3px); }
+}
+
+.scene-banner {
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  right: 12px;
+  padding: 8px 12px;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  text-align: center;
+  background: rgba(226,89,59,0.15);
+  border: 1px solid rgba(226,89,59,0.5);
+  color: #FFB199;
+  opacity: 0;
+  transform: translateY(-6px);
+  transition: opacity .2s, transform .2s;
+}
+.scene-banner.show { opacity: 1; transform: translateY(0); }
