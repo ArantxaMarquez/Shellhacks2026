@@ -542,8 +542,8 @@ main {
   text-align: center;
   background: rgba(226,89,59,0.15);
   border: 1px solid rgba(226,89,59,0.5);
-  color: #FFB199;
-  opacity: 0;
+  color: #ff5e00;
+  
   transform: translateY(-6px);
   transition: opacity .2s, transform .2s;
 }
