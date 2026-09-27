@@ -42,6 +42,22 @@
       </div>
     </section>
 
+    <!-- Alert call cooldown: how long to wait between phone alerts -->
+    <section class="info">
+      <div class="card settings-card" id="settingsCard">
+        <div class="settings-text">
+          <span class="label">Call cooldown</span>
+          <p class="caption">Minimum time between alert calls, even if the camera stays obstructed.</p>
+        </div>
+        <div class="settings-control">
+          <input type="number" id="cooldownInput" min="1" step="1" inputmode="numeric" aria-label="Call cooldown in minutes">
+          <span class="unit">min</span>
+          <button type="button" id="cooldownSave">Save</button>
+        </div>
+        <p class="caption" id="cooldownStatus" aria-live="polite"></p>
+      </div>
+    </section>
+
     <!-- Driving scene: reacts to the same status the card above shows -->
     <section class="scene-card" id="sceneCard" data-state="offline">
       <div class="scene">

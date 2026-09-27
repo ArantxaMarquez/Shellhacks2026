@@ -34,7 +34,7 @@ from xml.sax.saxutils import escape
 
 import cv2
 import numpy as np
-from flask import Flask, jsonify, Response
+from flask import Flask, jsonify, request, Response
 from flask_cors import CORS
 
 # =============================================================================
@@ -86,7 +86,9 @@ DEGRADED_MIN = 40    # 40 <= confidence < 70     -> "degraded"
 # --- Alerts ------------------------------------------------------------------
 # One shared cooldown for the whole alert (not per number): after an alert goes
 # out, nothing else fires for this long, even if the status keeps changing.
-ALERT_COOLDOWN_S = 30
+# Override with ALERT_COOLDOWN_S in pi-service/.env, or change it live from the
+# dashboard (calls PUT /alert-config, no restart needed).
+DEFAULT_ALERT_COOLDOWN_S = 300
 # The score can flicker for a frame or two (motion blur, a hand passing by, a light
 # flickering) without anything actually being wrong. Require a status to hold
 # steady for this long before it counts, so a brief blip never triggers a call.
@@ -374,6 +376,10 @@ E164 = re.compile(r"^\+[1-9]\d{6,14}$")
 
 
 class CallAlerter:
+    # Bounds for cooldown_s, enforced both on .env and on live /alert-config updates.
+    MIN_COOLDOWN_S = 10
+    MAX_COOLDOWN_S = 3600
+
     def __init__(self):
         self._confirmed_status = None   # last status that held for ALERT_SUSTAIN_S (what transitions compare against)
         self._pending_status = None     # status currently building up toward being confirmed
@@ -382,6 +388,8 @@ class CallAlerter:
         self._client = None
         self._from = None
         self._agent_id = None
+        self._cooldown_lock = threading.Lock()
+        self.cooldown_s = DEFAULT_ALERT_COOLDOWN_S   # live-editable; see set_cooldown()
         self.numbers = []             # who gets called
         self.channel = None           # "retell" or "twilio-fallback"
         self.enabled = self._setup()
@@ -397,6 +405,11 @@ class CallAlerter:
             log.warning("python-dotenv is not installed, so .env can't be read "
                         "(pip install -r requirements.txt). Only real environment variables count.")
 
+        try:
+            self.cooldown_s = int(os.environ.get("ALERT_COOLDOWN_S", DEFAULT_ALERT_COOLDOWN_S))
+        except ValueError:
+            log.warning("ALERT_COOLDOWN_S in pi-service/.env isn't a number; using %ss", DEFAULT_ALERT_COOLDOWN_S)
+
         self.numbers = self._parse_numbers(os.environ.get("RETELL_TEAM_NUMBERS", ""))
         if not self.numbers:
             log.warning("Alerts are OFF: RETELL_TEAM_NUMBERS in pi-service/.env has no valid "
@@ -409,8 +422,19 @@ class CallAlerter:
         ok = self._setup_retell() if retell_on else self._setup_twilio_fallback()
         if ok:
             log.info("Alerts are ON via %s. Will dial: %s (cooldown %ss)",
-                     self.channel, ", ".join(self.numbers), ALERT_COOLDOWN_S)
+                     self.channel, ", ".join(self.numbers), self.cooldown_s)
         return ok
+
+    # -- live config ---------------------------------------------------------------
+
+    def set_cooldown(self, seconds):
+        """Change the cooldown at runtime (called from the /alert-config route).
+        Raises ValueError if seconds is out of bounds."""
+        if not (self.MIN_COOLDOWN_S <= seconds <= self.MAX_COOLDOWN_S):
+            raise ValueError(f"cooldown_s must be between {self.MIN_COOLDOWN_S} and {self.MAX_COOLDOWN_S}")
+        with self._cooldown_lock:
+            self.cooldown_s = seconds
+        log.info("Alert cooldown changed to %ss", seconds)
 
     @staticmethod
     def _parse_numbers(raw):
@@ -486,9 +510,9 @@ class CallAlerter:
         if status == previous or (previous, status) not in ALERT_TRANSITIONS:
             return
 
-        if self._last_alert_at is not None and now - self._last_alert_at < ALERT_COOLDOWN_S:
+        if self._last_alert_at is not None and now - self._last_alert_at < self.cooldown_s:
             log.info("%s -> %s, but an alert went out %.0fs ago; skipping (shared cooldown %ss)",
-                     previous, status, now - self._last_alert_at, ALERT_COOLDOWN_S)
+                     previous, status, now - self._last_alert_at, self.cooldown_s)
             return
 
         self._last_alert_at = now  # counts even if every call fails, so we don't hammer the API
@@ -680,6 +704,24 @@ def status():
     if result is None:
         return jsonify(error="no frame captured yet", camera_connected=monitor.connected), 503
     return jsonify(result)
+
+
+@app.route("/alert-config", methods=["GET", "PUT"])
+def alert_config():
+    """GET returns the current alert cooldown; PUT changes it live (no restart).
+    Body: {"cooldown_s": 300}"""
+    if request.method == "PUT":
+        body = request.get_json(silent=True) or {}
+        try:
+            seconds = int(body["cooldown_s"])
+            alerter.set_cooldown(seconds)
+        except KeyError:
+            return jsonify(error="missing cooldown_s"), 400
+        except (TypeError, ValueError) as err:
+            return jsonify(error=str(err)), 400
+    return jsonify(cooldown_s=alerter.cooldown_s,
+                   min_cooldown_s=CallAlerter.MIN_COOLDOWN_S,
+                   max_cooldown_s=CallAlerter.MAX_COOLDOWN_S)
 
 
 @app.route("/frame.jpg")
