@@ -1,11 +1,42 @@
 # Camera Confidence Check
 
-Scores how clear a camera image is (0-100) and shows it in a web page.
+A safety monitor for a vehicle-mounted (or robot-mounted) camera. A Raspberry Pi camera — or a laptop webcam while developing — feeds a small Python service that scores, frame by frame, how much the camera's view can be trusted: is the lens clear, is it fogged or blurry, or is something physically blocking it? That score drives a live dashboard, and if the view genuinely degrades and stays that way, the service places an outbound phone call to the team so nobody has to be watching a screen to find out.
 
-- `pi-service/` – Python Flask service. Reads the camera, scores frames, serves JSON + a JPEG.
-- `web/` – plain HTML/CSS/JS frontend. No build step, no framework: open `index.html` or serve the folder. A car in the middle of the page reacts to the confidence score: it slows, brakes and drives into fog as the camera gets worse.
+It exists because a camera can silently go bad — condensation, a smudge, snow buildup, a knock that shifts the lens — and whatever depends on that camera (a driver, an operator, an automated system) has no way to know unless something is actively checking. This project is that check.
 
-The same service runs on a Raspberry Pi camera (via `picamera2`) and on a laptop webcam (via OpenCV). Only frame capture differs; the scoring is identical.
+## How it works
+
+1. **Capture.** [`pi-service/camera_service.py`](pi-service/camera_service.py) opens the camera in a background thread and reads frames continuously — a Raspberry Pi Camera Module via `picamera2`, or any laptop/USB webcam via OpenCV, with the same code path either way.
+2. **Score.** Every frame gets two independent 0–100 scores: a **fog/blur score** (variance of the Laplacian — a sharp image has high variance, a blurry or foggy one doesn't) and an **obstruction score** (the frame is split into a grid, and cells that are bright *and* unusually flat suggest something opaque is sitting on the lens, as opposed to blur affecting the whole image evenly). The lower of the two becomes the overall **confidence**, lightly smoothed so it doesn't flicker, and mapped to a status: `clear`, `degraded`, or `obstructed`.
+3. **Serve.** A Flask API exposes the current confidence, status, and the live frame as a JPEG, over the local network — see [Endpoints](#endpoints).
+4. **Display.** [`web/`](web) is a dependency-free HTML/CSS/JS dashboard that polls that API once a second: a live camera thumbnail, a numeric confidence readout, a color-coded bar and status badge, and an animated road scene that visibly slows down and fogs over as confidence drops — a way to feel what "degraded camera confidence" means, not just read a number.
+5. **Alert.** If the status genuinely gets worse (`clear → degraded`, `clear → obstructed`, or `degraded → obstructed`) and holds for several seconds — not just a one-frame blip — the service places outbound calls through a [Retell AI](https://www.retellai.com) voice agent to a configured team, reading out the live confidence score, with a Twilio voice-call fallback if Retell is unavailable. See [Phone alerts](#phone-alerts-optional).
+
+The `tensorflow/` folder at the repo root holds an in-progress 3-class weather classifier (blizzard / clear / snowy), trained with transfer learning on top of MobileNetV2 and exported to TensorFlow Lite — a further signal, alongside the classical scoring, for what the camera is actually seeing. It isn't wired into the live service on this branch yet.
+
+## Tech stack
+
+**Backend / camera service** — Python, Flask + `flask-cors`, OpenCV (`opencv-python-headless`), NumPy, `picamera2` (Raspberry Pi camera access), `python-dotenv` (config from `.env`).
+
+**Phone alerts** — [Retell AI](https://www.retellai.com) (`retell-sdk`) for the primary voice-agent call-out, [Twilio](https://www.twilio.com) as a fallback voice channel.
+
+**On-device ML (in progress)** — TensorFlow / Keras for training (`tensorflow/`, MobileNetV2 transfer learning), exported to TensorFlow Lite for on-device inference.
+
+**Frontend** — plain HTML, CSS and JavaScript. No framework, no build step, no `npm install`: open the file or serve the folder. A handful of visual effects (a cursor-tracking spotlight, shimmering and gradient text, an animated glow border) are ported from [React Bits](https://reactbits.dev) into vanilla CSS/JS. Type is self-hosted Barlow / Barlow Condensed.
+
+**Hardware target** — Raspberry Pi + Camera Module (autofocus support for Camera Module 3), with a laptop webcam as the development stand-in.
+
+## Project layout
+
+- [`pi-service/`](pi-service) — the Flask service: camera capture, scoring, the HTTP API, and phone alerting.
+- [`web/`](web) — the dashboard frontend.
+- [`tensorflow/`](tensorflow) — training script, dataset-building tooling, and the current weather-classifier model/labels.
+
+## Contributors
+
+- Arantxa Marquez
+- Naila Desgrottes
+- Lenny Wandeto
 
 ## Quick start
 
@@ -149,7 +180,7 @@ RETELL_FROM_NUMBER=+1...
 - **When it fires:** only on `clear` to `degraded`, `clear` to `obstructed`, and `degraded` to `obstructed`. Recoveries, no-change frames and the first frame after startup never fire.
 - **Debounced:** a status only counts once it has held steady for 5 seconds (`ALERT_SUSTAIN_S` in `camera_service.py`). A hand passing by or a moment of motion blur won't fire anything; the lens has to actually stay obstructed.
 - **One event, one round of calls:** every number is called once, one after another, with `confidence` and `status` passed to the agent. A bad or unverified number logs an error and the others are still called.
-- **One shared cooldown:** after an alert, nothing else fires for 30 seconds (`ALERT_COOLDOWN_S`). That includes an escalation: if the status goes `clear` to `degraded` and then `degraded` to `obstructed` within 30 seconds, only the first triggers calls.
+- **One shared cooldown, live-adjustable:** after an alert, nothing else fires for a while, so a flickering status can't spam the team. It defaults to 5 minutes (`DEFAULT_ALERT_COOLDOWN_S`), set it at startup with `ALERT_COOLDOWN_S` in `.env`, or change it on the fly (no restart) with `GET`/`PUT /alert-config` — the dashboard reads and can update this. Bounded between 10 seconds and 1 hour.
 - **Test with one number:** set `DIAL_ONLY_FIRST_NUMBER = True` in `camera_service.py`.
 - **Retell misbehaving during the demo?** Set `RETELL_ENABLED=false`, fill in the three `TWILIO_*` lines, and restart. The same team numbers get a plain Twilio **voice call** instead (`send_fallback_call()` in `camera_service.py`) that reads the alert aloud twice: "Camera alert. The camera is now obstructed. Confidence is 12 out of 100. Please check the camera." It is not automatic; you flip it yourself. (A Twilio trial account can only call numbers you've verified in its console.)
 - **Reading the log:** each alert prints the transition, the channel, the numbers being dialed, one line per number (with the Retell `call_id`), and a summary like `Retell alert done: 2/3 reached. Failed: +1...`.
@@ -199,6 +230,8 @@ If you change `PORT` in `camera_service.py` instead, change `SERVICE_URL` in `we
 | `GET /frame.jpg` | Most recent frame as JPEG. `503` until the first frame arrives. |
 | `GET /health` | `{ok: true, camera_connected: bool, sensor_model}`. `sensor_model` is e.g. `"imx708"` on a Pi camera and `null` on a webcam, so you can tell the OpenCV fallback isn't silently in use. |
 | `POST /refocus` | Pi camera only: runs one autofocus cycle and locks the lens there. `200 {ok, lens_position, af_state}`. `500` if autofocus failed or timed out, `409` if there is no autofocus-capable Pi camera. |
+| `GET /alert-config` | `{cooldown_s, min_cooldown_s, max_cooldown_s}` — the live alert cooldown and its bounds. |
+| `PUT /alert-config` | Body `{"cooldown_s": 300}`. Changes the alert cooldown immediately, no restart. `400` if out of bounds (10–3600). |
 
 `status` is `clear` (confidence ≥ 70), `degraded` (40–69) or `obstructed` (< 40).
 

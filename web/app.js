@@ -13,6 +13,11 @@ const barTrack = document.getElementById('bar-track');
 const badge = document.getElementById('badge');
 const caption = document.getElementById('caption');
 
+// -- alert cooldown settings --
+const cooldownInput = document.getElementById('cooldownInput');
+const cooldownSave = document.getElementById('cooldownSave');
+const cooldownStatus = document.getElementById('cooldownStatus');
+
 // -- driving scene elements --
 const sceneCard = document.getElementById('sceneCard');
 const sceneRoad = document.getElementById('scene-road');
@@ -58,6 +63,8 @@ function renderScene(state, confidence = null) {
     : 0;
 
   sceneRoad.classList.toggle('paused', stopped);
+  if (stopped) sceneRoad.pause();
+  else sceneRoad.play().catch(() => {}); // autoplay can reject before first user interaction
   car.classList.toggle('stopped', stopped);
   sceneCard.classList.toggle('weather-active', fogIntensity > 0.05);
 
@@ -129,9 +136,53 @@ function refreshFrame() {
   frame.src = `${SERVICE_URL}/frame.jpg?t=${Date.now()}`;
 }
 
+// -- alert cooldown settings --
+
+async function loadCooldown() {
+  try {
+    const res = await fetch(`${SERVICE_URL}/alert-config`, { cache: 'no-store' });
+    if (!res.ok) throw new Error(`service returned HTTP ${res.status}`);
+    const cfg = await res.json();
+    cooldownInput.min = Math.ceil(cfg.min_cooldown_s / 60);
+    cooldownInput.max = Math.floor(cfg.max_cooldown_s / 60);
+    cooldownInput.value = Math.round(cfg.cooldown_s / 60);
+    cooldownStatus.textContent = '';
+  } catch (err) {
+    cooldownStatus.textContent = `Couldn't load current cooldown: ${err.message}`;
+  }
+}
+
+async function saveCooldown() {
+  const minutes = Number(cooldownInput.value);
+  if (!Number.isFinite(minutes) || minutes <= 0) {
+    cooldownStatus.textContent = 'Enter a number of minutes greater than 0.';
+    return;
+  }
+  cooldownSave.disabled = true;
+  cooldownStatus.textContent = 'Saving…';
+  try {
+    const res = await fetch(`${SERVICE_URL}/alert-config`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ cooldown_s: Math.round(minutes * 60) }),
+    });
+    const cfg = await res.json();
+    if (!res.ok) throw new Error(cfg.error || `service returned HTTP ${res.status}`);
+    cooldownInput.value = Math.round(cfg.cooldown_s / 60);
+    cooldownStatus.textContent = `Saved. Calls are now at least ${cfg.cooldown_s / 60} min apart.`;
+  } catch (err) {
+    cooldownStatus.textContent = `Couldn't save: ${err.message}`;
+  } finally {
+    cooldownSave.disabled = false;
+  }
+}
+
+cooldownSave.addEventListener('click', saveCooldown);
+
 render('offline', null, 'Connecting to sensor…');
 renderScene('offline');
 pollStatus();
 refreshFrame();
+loadCooldown();
 setInterval(pollStatus, POLL_MS);
 setInterval(refreshFrame, POLL_MS);

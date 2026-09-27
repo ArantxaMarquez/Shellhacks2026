@@ -422,6 +422,39 @@ body::after {
 
 .caption { margin: 14px 0 0; color: var(--text-dim); font-size: 1rem; line-height: 1.4; }
 
+.settings-card {
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+}
+.settings-text .caption { margin-top: 4px; }
+.settings-control { display: flex; align-items: center; gap: 8px; }
+.settings-control input {
+  width: 72px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 1px solid #2E2650;
+  background: var(--panel-alt);
+  color: var(--text);
+  font-family: var(--font-display);
+  font-size: 1.1rem;
+  text-align: right;
+}
+.settings-control .unit { font-size: 0.9rem; }
+.settings-control button {
+  padding: 8px 16px;
+  border-radius: 8px;
+  border: none;
+  background: var(--accent);
+  color: #1B263B;
+  font-family: var(--font-display);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  cursor: pointer;
+}
+.settings-control button:disabled { opacity: 0.6; cursor: default; }
+#cooldownStatus { grid-column: 1 / -1; }
+
 /* Phone width */
 @media (max-width: 560px) {
   .card { grid-template-columns: 1fr; }
