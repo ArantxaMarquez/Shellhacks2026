@@ -1,4 +1,4 @@
-# Camera Confidence Check
+# Freeze: Autonomous Camera for Winter Safety
 
 A safety monitor for a vehicle-mounted (or robot-mounted) camera. A Raspberry Pi camera — or a laptop webcam while developing — feeds a small Python service that scores, frame by frame, how much the camera's view can be trusted: is the lens clear, is it fogged or blurry, or is something physically blocking it? That score drives a live dashboard, and if the view genuinely degrades and stays that way, the service places an outbound phone call to the team so nobody has to be watching a screen to find out.
 
