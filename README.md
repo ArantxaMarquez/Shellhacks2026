@@ -127,6 +127,34 @@ Point the camera at something with detail first. Confirm you're on the real came
 
 **Which camera code runs:** `CAMERA_BACKEND` is `auto` by default: it uses `picamera2` if it can be imported, then falls back to OpenCV (`cv2.VideoCapture`) if the Pi camera can't be opened. So a USB webcam on a Pi still works. Set `CAMERA_BACKEND=picamera2` or `CAMERA_BACKEND=opencv` to force one. Mac and Windows have no `picamera2`, so they use OpenCV automatically.
 
+## Phone alerts (optional)
+
+When the camera gets worse, a Retell voice agent calls the team. Without setup the service runs normally and logs one warning: `Alerts are OFF`.
+
+```bash
+cd pi-service
+cp .env.example .env      # Windows: copy .env.example .env
+```
+
+Fill in `pi-service/.env` (git-ignored), then restart `camera_service.py`. The log should say `Alerts are ON via retell. Will dial: ...`.
+
+```
+RETELL_TEAM_NUMBERS=+1555...,+1555...,+1555...   # three E.164 numbers, comma-separated
+RETELL_ENABLED=true                              # false = use the Twilio fallback
+RETELL_API_KEY=...
+RETELL_AGENT_ID=...                              # the Lavender agent
+RETELL_FROM_NUMBER=+1...
+```
+
+- **When it fires:** only on `clear` to `degraded`, `clear` to `obstructed`, and `degraded` to `obstructed`. Recoveries, no-change frames and the first frame after startup never fire.
+- **One event, one round of calls:** every number is called once, one after another, with `confidence` and `status` passed to the agent. A bad or unverified number logs an error and the others are still called.
+- **One shared cooldown:** after an alert, nothing else fires for 30 seconds (`ALERT_COOLDOWN_S`). That includes an escalation: if the status goes `clear` to `degraded` and then `degraded` to `obstructed` within 30 seconds, only the first triggers calls.
+- **Test with one number:** set `DIAL_ONLY_FIRST_NUMBER = True` in `camera_service.py`.
+- **Retell misbehaving during the demo?** Set `RETELL_ENABLED=false`, fill in the three `TWILIO_*` lines, and restart. The same team numbers get a plain Twilio **voice call** instead (`send_fallback_call()` in `camera_service.py`) that reads the alert aloud twice: "Camera alert. The camera is now obstructed. Confidence is 12 out of 100. Please check the camera." It is not automatic; you flip it yourself. (A Twilio trial account can only call numbers you've verified in its console.)
+- **Reading the log:** each alert prints the transition, the channel, the numbers being dialed, one line per number (with the Retell `call_id`), and a summary like `Retell alert done: 2/3 reached. Failed: +1...`.
+- **Failures are safe:** calls are placed from a background thread. Bad keys, no internet or a rate limit only log errors; frame capture and `/status` are unaffected.
+- Run `pip install -r requirements.txt` again on an existing install (the Pi script installs `retell-sdk`, `twilio` and `python-dotenv` for you).
+
 ## Troubleshooting
 
 **Camera not found** (log says `Could not open camera at device index 0`)

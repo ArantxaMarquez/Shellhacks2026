@@ -12,6 +12,12 @@ Two ways to get frames (only this part differs; the scoring is the same):
                   (POST /refocus to redo it).
   * opencv      - laptop / USB webcams via cv2.VideoCapture (the fallback)
 
+Optional phone alerts: when the status gets worse (clear -> degraded, clear ->
+obstructed, degraded -> obstructed) a Retell voice agent calls the team numbers.
+Set the RETELL_* values in pi-service/.env (see .env.example). RETELL_ENABLED=false
+switches to the plain Twilio fallback. Without any config the service runs normally,
+just without alerts.
+
 Pick a different camera:  CAMERA_INDEX=1 python camera_service.py
 Force a backend:          CAMERA_BACKEND=opencv python camera_service.py
                           (auto | picamera2 | opencv, default auto)
@@ -19,9 +25,12 @@ Force a backend:          CAMERA_BACKEND=opencv python camera_service.py
 
 import logging
 import os
+import re
 import sys
 import threading
 import time
+from pathlib import Path
+from xml.sax.saxutils import escape
 
 import cv2
 import numpy as np
@@ -73,6 +82,12 @@ SMOOTHING = 0.3
 CLEAR_MIN = 70       # confidence >= 70          -> "clear"
 DEGRADED_MIN = 40    # 40 <= confidence < 70     -> "degraded"
                      # confidence < 40           -> "obstructed"
+
+# --- Alerts ------------------------------------------------------------------
+# One shared cooldown for the whole alert (not per number): after an alert goes
+# out, nothing else fires for this long, even if the status keeps changing.
+ALERT_COOLDOWN_S = 30
+DIAL_ONLY_FIRST_NUMBER = False   # True: call just the first RETELL_TEAM_NUMBERS entry (testing)
 
 # --- Server ------------------------------------------------------------------
 PORT = 5050          # not 5000: macOS AirPlay Receiver squats on it
@@ -336,6 +351,196 @@ def open_camera(index=CAMERA_INDEX):
     return None
 
 
+# ----------------------------------------------------------------------------
+# Phone alerts. Primary channel: a Retell voice agent calls every team number.
+# Fallback (RETELL_ENABLED=false): plain Twilio. Credentials live in pi-service/.env.
+# Everything here is best-effort: it must never stop the camera or /status.
+# ----------------------------------------------------------------------------
+
+# Only these status changes fire an alert. Recoveries and "no change" never do.
+ALERT_TRANSITIONS = {
+    ("clear", "degraded"),
+    ("clear", "obstructed"),
+    ("degraded", "obstructed"),   # escalation: guidance goes from slow-with-hazards to full stop
+}
+
+RETELL_ENV_VARS = ("RETELL_API_KEY", "RETELL_AGENT_ID", "RETELL_FROM_NUMBER")
+TWILIO_ENV_VARS = ("TWILIO_ACCOUNT_SID", "TWILIO_AUTH_TOKEN", "TWILIO_FROM_NUMBER")
+E164 = re.compile(r"^\+[1-9]\d{6,14}$")
+
+
+class CallAlerter:
+    def __init__(self):
+        self._prev_status = None      # status on the previous frame
+        self._last_alert_at = None    # time.monotonic() of the last alert (shared cooldown)
+        self._client = None
+        self._from = None
+        self._agent_id = None
+        self.numbers = []             # who gets called
+        self.channel = None           # "retell" or "twilio-fallback"
+        self.enabled = self._setup()
+
+    # -- setup -------------------------------------------------------------------
+
+    def _setup(self):
+        """Read .env and build the client. Returns False (and warns once) if we can't."""
+        try:
+            from dotenv import load_dotenv
+            load_dotenv(Path(__file__).with_name(".env"))
+        except ImportError:
+            log.warning("python-dotenv is not installed, so .env can't be read "
+                        "(pip install -r requirements.txt). Only real environment variables count.")
+
+        self.numbers = self._parse_numbers(os.environ.get("RETELL_TEAM_NUMBERS", ""))
+        if not self.numbers:
+            log.warning("Alerts are OFF: RETELL_TEAM_NUMBERS in pi-service/.env has no valid "
+                        "E.164 numbers (like +15551234567, comma-separated). Camera scoring works as normal.")
+            return False
+        if DIAL_ONLY_FIRST_NUMBER:
+            self.numbers = self.numbers[:1]
+
+        retell_on = os.environ.get("RETELL_ENABLED", "true").strip().lower() not in ("false", "0", "no", "off")
+        ok = self._setup_retell() if retell_on else self._setup_twilio_fallback()
+        if ok:
+            log.info("Alerts are ON via %s. Will dial: %s (cooldown %ss)",
+                     self.channel, ", ".join(self.numbers), ALERT_COOLDOWN_S)
+        return ok
+
+    @staticmethod
+    def _parse_numbers(raw):
+        numbers, bad = [], []
+        for item in raw.split(","):
+            item = item.strip()
+            if not item:
+                continue
+            if not E164.match(item):
+                bad.append(item)
+            elif item not in numbers:
+                numbers.append(item)
+        if bad:
+            log.warning("Ignoring RETELL_TEAM_NUMBERS entries that aren't E.164: %s", ", ".join(bad))
+        return numbers
+
+    @staticmethod
+    def _missing(names):
+        return [n for n in names if not os.environ.get(n, "").strip()]
+
+    def _setup_retell(self):
+        missing = self._missing(RETELL_ENV_VARS)
+        if missing:
+            log.warning("Alerts are OFF: %s not set in pi-service/.env. "
+                        "(RETELL_ENABLED=false switches to the Twilio fallback.)", ", ".join(missing))
+            return False
+        try:
+            from retell import Retell
+            self._client = Retell(api_key=os.environ["RETELL_API_KEY"].strip())
+        except Exception as err:  # package missing, or a bad key format
+            log.warning("Alerts are OFF: could not set up Retell (%s: %s). "
+                        "(RETELL_ENABLED=false switches to the Twilio fallback.)", type(err).__name__, err)
+            return False
+        self._agent_id = os.environ["RETELL_AGENT_ID"].strip()
+        self._from = os.environ["RETELL_FROM_NUMBER"].strip()
+        self.channel = "retell"
+        return True
+
+    def _setup_twilio_fallback(self):
+        missing = self._missing(TWILIO_ENV_VARS)
+        if missing:
+            log.warning("Alerts are OFF: RETELL_ENABLED=false, but %s not set in pi-service/.env.",
+                        ", ".join(missing))
+            return False
+        try:
+            from twilio.rest import Client
+            self._client = Client(os.environ["TWILIO_ACCOUNT_SID"].strip(),
+                                  os.environ["TWILIO_AUTH_TOKEN"].strip())
+        except Exception as err:
+            log.warning("Alerts are OFF: could not set up Twilio (%s: %s)", type(err).__name__, err)
+            return False
+        self._from = os.environ["TWILIO_FROM_NUMBER"].strip()
+        self.channel = "twilio-fallback"
+        return True
+
+    # -- trigger -----------------------------------------------------------------
+
+    def update(self, status, confidence):
+        """Call once per scored frame. Fires only on the transitions in ALERT_TRANSITIONS."""
+        previous, self._prev_status = self._prev_status, status
+        if not self.enabled or (previous, status) not in ALERT_TRANSITIONS:
+            return
+
+        now = time.monotonic()
+        if self._last_alert_at is not None and now - self._last_alert_at < ALERT_COOLDOWN_S:
+            log.info("%s -> %s, but an alert went out %.0fs ago; skipping (shared cooldown %ss)",
+                     previous, status, now - self._last_alert_at, ALERT_COOLDOWN_S)
+            return
+
+        self._last_alert_at = now  # counts even if every call fails, so we don't hammer the API
+        # Dial from a separate thread: slow or dead networks must not stall
+        # frame capture or the /status endpoint.
+        threading.Thread(target=self._dispatch, args=(previous, status, confidence),
+                         name="alert", daemon=True).start()
+
+    def _dispatch(self, previous, status, confidence):
+        log.warning("ALERT %s -> %s (confidence %d) via %s. Dialing %d number(s): %s",
+                    previous, status, confidence, self.channel, len(self.numbers), ", ".join(self.numbers))
+        try:
+            if self.channel == "retell":
+                self._send_retell_calls(confidence, status)
+            else:
+                self.send_fallback_call(confidence, status)
+        except Exception:
+            log.exception("Alert dispatch failed")
+
+    # -- channels ------------------------------------------------------------------
+
+    def _send_retell_calls(self, confidence, status):
+        """One Retell call per team number. Each has its own try/except so one bad
+        number doesn't stop the rest."""
+        placed, failed = [], []
+        for number in self.numbers:
+            try:
+                call = self._client.call.create_phone_call(
+                    from_number=self._from,
+                    to_number=number,
+                    override_agent_id=self._agent_id,
+                    retell_llm_dynamic_variables={"confidence": str(confidence), "status": status},
+                )
+                log.info("Retell call placed to %s (call_id %s)", number, getattr(call, "call_id", "?"))
+                placed.append(number)
+            except Exception as err:
+                log.error("Retell call to %s FAILED: %s: %s", number, type(err).__name__, err)
+                failed.append(number)
+        self._log_summary("Retell", placed, failed)
+
+    def send_fallback_call(self, confidence, status):
+        """Plain-Twilio fallback, used when RETELL_ENABLED=false. Not called automatically.
+
+        Places a normal Twilio voice call to each team number that reads the alert aloud
+        (twice). Same per-number try/except as the Retell path.
+        """
+        speech = ("Camera alert. The camera is now %s. Confidence is %d out of 100. "
+                  "Please check the camera." % (status, confidence))
+        twiml = '<Response><Say loop="2">%s</Say></Response>' % escape(speech)
+        placed, failed = [], []
+        for number in self.numbers:
+            try:
+                call = self._client.calls.create(twiml=twiml, from_=self._from, to=number)
+                log.info("Twilio fallback call placed to %s (sid %s)", number, call.sid)
+                placed.append(number)
+            except Exception as err:
+                log.error("Twilio fallback call to %s FAILED: %s: %s", number, type(err).__name__, err)
+                failed.append(number)
+        self._log_summary("Twilio fallback", placed, failed)
+
+    @staticmethod
+    def _log_summary(channel, placed, failed):
+        line = "%s alert done: %d/%d reached" % (channel, len(placed), len(placed) + len(failed))
+        if failed:
+            log.error("%s. Failed: %s", line, ", ".join(failed))
+        else:
+            log.warning("%s (%s)", line, ", ".join(placed))
+
+
 class CameraMonitor:
     """Captures frames in a background thread and keeps the latest result."""
 
@@ -424,10 +629,15 @@ class CameraMonitor:
         self._smoothed = raw if self._smoothed is None else (
             SMOOTHING * raw + (1 - SMOOTHING) * self._smoothed)
         confidence = round(self._smoothed)
+        status = status_for(confidence)
+        try:
+            alerter.update(status, confidence)
+        except Exception:
+            log.exception("Alert check failed; ignoring")
 
         result = {
             "confidence": confidence,
-            "status": status_for(confidence),
+            "status": status,
             "fog_score": round(fog, 1),
             "obstruction_score": round(obstruction, 1),
             "timestamp": time.time(),  # unix seconds
@@ -443,6 +653,7 @@ class CameraMonitor:
 
 app = Flask(__name__)
 CORS(app)
+alerter = CallAlerter()
 monitor = CameraMonitor()
 
 
