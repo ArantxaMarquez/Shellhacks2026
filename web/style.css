@@ -8,14 +8,11 @@
 
 /* All colors and fonts live here. Change the palette in this one block. */
 :root {
-  --font-display: "Barlow Condensed", "Arial Narrow", "Roboto Condensed", sans-serif;  /* numbers, labels, headings */
-  --font-body:    "Barlow", system-ui, -apple-system, "Segoe UI", sans-serif;
-
-  --bg:        #05080b;   /* page background (near-black) */
-  --panel:     #0d1318;   /* card background (lighter) */
-  --panel-alt: #151d25;   /* bar track, image placeholder */
-  --text:      #ecefe9;
-  --text-dim:  #8a939a;
+  --bg:        #2c1BAC;   /* page background (near-black) */
+  --panel:     #161225;   /* card background (lighter) */
+  --panel-alt: #1e232b;   /* bar track, image placeholder */
+  --text:      #D902F8;
+  --text-dim:  #D902F8;
 
   --ok:        #2ecc71;   /* green: clear    (>= 70) */
   --warn:      #f5a623;   /* amber: degraded (40-69) */
@@ -56,72 +53,48 @@ body {
   font-family: var(--font-body);
   font-size: 1.0625rem;
   overflow-x: hidden;
+  
+  font-family: 'Inter', sans-serif;
+  background-color: #0D0A1A;
+  background-image:
+    linear-gradient(rgba(217, 70, 239, 0.08) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(217, 70, 239, 0.08) 1px, transparent 1px),
+    radial-gradient(ellipse at 50% 0%, rgba(79, 168, 216, 0.15), transparent 60%);
+  background-size: 48px 48px, 48px 48px, 100% 100%;
+  background-attachment: fixed;
+  min-height: 100vh;
+
 }
+.project-title,
+.label,
+.badge {
+  font-family: 'Space Grotesk', sans-serif;
+}
+
 body[data-state="clear"]      { --accent: var(--ok); }
 body[data-state="degraded"]   { --accent: var(--warn); }
 body[data-state="obstructed"] { --accent: var(--bad); }
 body[data-state="offline"]    { --accent: var(--offline); }
 
-/* ---------- Page layout: title, hero car, info card ---------- */
-main {
-  position: relative;
-  z-index: 1;
-  width: 100%;
-  max-width: 1040px;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 26px;
+body::before {
+  content: '';
+  position: fixed;
+  top: 0; left: 15%;
+  width: 200px; height: 100vh;
+  background: linear-gradient(180deg, rgba(217,70,239,0.06), transparent 70%);
+  pointer-events: none;
+  z-index: 0;
+}
+body::after {
+  content: '';
+  position: fixed;
+  top: 0; right: 15%;
+  width: 200px; height: 100vh;
+  background: linear-gradient(180deg, rgba(79,168,216,0.06), transparent 70%);
+  pointer-events: none;
+  z-index: 0;
 }
 
-.top { text-align: center; }
-.top h1 {
-  margin: 0;
-  font-family: var(--font-display);
-  font-size: clamp(2.1rem, 6vw, 3.6rem);
-  font-weight: 700;
-  letter-spacing: 0.07em;
-  text-transform: uppercase;
-  line-height: 1.05;
-}
-.sub { margin: 8px 0 0; font-size: 1rem; font-weight: 500; letter-spacing: 0.05em; }
-
-/* ============================================================
-   Ported from React Bits (reactbits.dev), rewritten as plain CSS/JS
-   ============================================================ */
-
-/* --- GradientText: colours slide along the text (driven from app.js) --- */
-.gradient-text {
-  display: inline-block;
-  background-image: linear-gradient(to right, var(--grad-1), var(--grad-2), var(--grad-3), var(--grad-1));
-  background-size: 300% 100%;
-  background-repeat: repeat;
-  -webkit-background-clip: text;
-  background-clip: text;
-  color: transparent;
-}
-
-/* --- ShinyText: a highlight sweeps across the text (driven from app.js) --- */
-.shiny-text {
-  --shiny-color: #8b93a1;
-  --shiny-shine: #ffffff;
-  display: inline-block;
-  background-image: linear-gradient(120deg, var(--shiny-color) 0%, var(--shiny-color) 35%, var(--shiny-shine) 50%, var(--shiny-color) 65%, var(--shiny-color) 100%);
-  background-size: 200% auto;
-  background-position: 150% center;
-  -webkit-background-clip: text;
-  background-clip: text;
-  -webkit-text-fill-color: transparent;
-}
-
-/* --- SpotlightCard: a soft light follows the cursor (mouse position set from app.js) --- */
-.card-spotlight {
-  position: relative;
-  overflow: hidden;
-  --mouse-x: 50%;
-  --mouse-y: 50%;
-  --spotlight-color: color-mix(in srgb, var(--accent) 34%, transparent);
-}
 .card-spotlight::before {
   content: '';
   position: absolute;
@@ -382,7 +355,7 @@ main {
   -webkit-backdrop-filter: blur(14px);
   backdrop-filter: blur(14px);
   border-radius: 20px;
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  border: 1px solid #2E2650;
 }
 
 .thumb {
@@ -422,8 +395,8 @@ main {
   font-size: 0.9rem;
   font-weight: 700;
   text-transform: uppercase;
-  letter-spacing: 0.12em;
-  color: #05080b;
+  letter-spacing: 0.06em;
+  color: #1B263B;
   background: var(--accent);
 }
 
@@ -458,4 +431,140 @@ main {
 
 @media (prefers-reduced-motion: reduce) {
   .aurora i, .grain, .star-border .border-gradient-bottom, .star-border .border-gradient-top { animation: none; }
+}
+
+
+/*lower window*/
+main {
+   max-width: 900px;
+  margin: 0 auto;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 20px;
+}
+
+.scene-card {
+  width: 50%;
+  max-width: 900px;
+  margin-inline: 0 auto;
+  flex: 1;
+  min-width: 320px;
+}
+
+.scene {
+  position: relative;
+  height: 400px;
+  border-radius: 12px;
+  overflow: hidden;
+  background: #0D1117; /* shows briefly before the video's first frame paints */
+}
+
+.scene-bg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.scene-weather {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.35s ease;
+  background:
+    radial-gradient(circle at 12% 18%, rgba(255,255,255,0.9) 0 1.3px, transparent 2px),
+    radial-gradient(circle at 32% 44%, rgba(255,255,255,0.76) 0 1.5px, transparent 2.2px),
+    radial-gradient(circle at 56% 26%, rgba(255,255,255,0.7) 0 1.7px, transparent 2.4px),
+    radial-gradient(circle at 74% 58%, rgba(255,255,255,0.9) 0 1.6px, transparent 2.3px),
+    radial-gradient(circle at 88% 36%, rgba(255,255,255,0.75) 0 1.4px, transparent 2.1px),
+    linear-gradient(180deg, rgba(255,255,255,0.35), rgba(255,255,255,0.12), rgba(255,255,255,0.24));
+  background-size: 200px 200px, 200px 210px, 240px 240px, 220px 220px, 200px 200px, 100% 100%;
+  animation: snowfall-drift 12s linear infinite;
+  mix-blend-mode: screen;
+  filter: blur(0.5px);
+}
+.scene-weather.visible { opacity: ; }
+.scene-card.weather-active .scene-road,
+.scene-card.weather-active .car {
+  filter: blur(0.8px) brightness(0.95);
+}
+@keyframes snowfall-drift {
+  0%   { transform: translate3d(0, -10%, 0); background-position: 0 0, 40px 32px, 90px 80px, 140px 120px, 180px 60px, center; }
+  100% { transform: translate3d(0, 10%, 0); background-position: 0 0, 120px 210px, 220px 240px, 70px 200px, 160px 220px, center; }
+}
+
+.scene-road {
+  position: absolute;
+  left: 50%;
+  bottom: -12%;
+  width: 110.3%;
+  transform: translateX(-50%);
+  transform-origin: 50% 100%;
+  pointer-events: none;
+  mix-blend-mode:screen;
+  
+}
+.scene-road.paused { 
+  animation-play-state: paused;
+ }
+
+
+.car {
+  position: absolute;
+  left: 50%;
+  bottom: 6%;
+  width: 70%;
+  transform: translateX(-50%) translateY(0);
+  filter: drop-shadow(0 8px 12px rgba(0,0,0,.45));
+  transition: filter .3s ease;
+  animation: car-bob 1s ease-in-out infinite;
+}
+.car.stopped {
+  filter: drop-shadow(0 8px 14px rgba(253, 50, 4, 0.55)) brightness(1.04);
+  animation-play-state: paused;
+}
+@keyframes car-bob {
+  0%, 100% { transform: translateX(-50%) translateY(0); }
+  50%      { transform: translateX(-50%) translateY(-3px); }
+}
+
+.scene-banner {
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  right: 12px;
+  padding: 8px 12px;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  text-align: center;
+  background: rgba(226,89,59,0.15);
+  border: 1px solid rgba(226,89,59,0.5);
+  color: #FFB199;
+  opacity: 0;
+  transform: translateY(-6px);
+  transition: opacity .2s, transform .2s;
+}
+.scene-banner.show { opacity: 1; transform: translateY(0); }
+
+h1 {
+  font-size: clamp(3rem, 7vw, 5rem);
+  font-weight: 800;
+
+}
+
+.page-footer {
+  font-size: 13px;
+  color: #8B98A8;
+}
+.page-footer .contact {
+  font-size: 13px;
+  font-weight: 400;
+  color: #8B98A8;
+}
+
+.project-title{
+  text-shadow: 0 0px 12px (217, 70, 239, 0.6), 0 0 32px rgba(217, 70, 239, 0.3);
 }
