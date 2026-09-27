@@ -147,6 +147,7 @@ RETELL_FROM_NUMBER=+1...
 ```
 
 - **When it fires:** only on `clear` to `degraded`, `clear` to `obstructed`, and `degraded` to `obstructed`. Recoveries, no-change frames and the first frame after startup never fire.
+- **Debounced:** a status only counts once it has held steady for 5 seconds (`ALERT_SUSTAIN_S` in `camera_service.py`). A hand passing by or a moment of motion blur won't fire anything; the lens has to actually stay obstructed.
 - **One event, one round of calls:** every number is called once, one after another, with `confidence` and `status` passed to the agent. A bad or unverified number logs an error and the others are still called.
 - **One shared cooldown:** after an alert, nothing else fires for 30 seconds (`ALERT_COOLDOWN_S`). That includes an escalation: if the status goes `clear` to `degraded` and then `degraded` to `obstructed` within 30 seconds, only the first triggers calls.
 - **Test with one number:** set `DIAL_ONLY_FIRST_NUMBER = True` in `camera_service.py`.

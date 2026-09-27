@@ -87,6 +87,10 @@ DEGRADED_MIN = 40    # 40 <= confidence < 70     -> "degraded"
 # One shared cooldown for the whole alert (not per number): after an alert goes
 # out, nothing else fires for this long, even if the status keeps changing.
 ALERT_COOLDOWN_S = 30
+# The score can flicker for a frame or two (motion blur, a hand passing by, a light
+# flickering) without anything actually being wrong. Require a status to hold
+# steady for this long before it counts, so a brief blip never triggers a call.
+ALERT_SUSTAIN_S = 5
 DIAL_ONLY_FIRST_NUMBER = False   # True: call just the first RETELL_TEAM_NUMBERS entry (testing)
 
 # --- Server ------------------------------------------------------------------
@@ -371,8 +375,10 @@ E164 = re.compile(r"^\+[1-9]\d{6,14}$")
 
 class CallAlerter:
     def __init__(self):
-        self._prev_status = None      # status on the previous frame
-        self._last_alert_at = None    # time.monotonic() of the last alert (shared cooldown)
+        self._confirmed_status = None   # last status that held for ALERT_SUSTAIN_S (what transitions compare against)
+        self._pending_status = None     # status currently building up toward being confirmed
+        self._pending_since = None      # time.monotonic() self._pending_status first appeared
+        self._last_alert_at = None      # time.monotonic() of the last alert (shared cooldown)
         self._client = None
         self._from = None
         self._agent_id = None
@@ -463,12 +469,23 @@ class CallAlerter:
     # -- trigger -----------------------------------------------------------------
 
     def update(self, status, confidence):
-        """Call once per scored frame. Fires only on the transitions in ALERT_TRANSITIONS."""
-        previous, self._prev_status = self._prev_status, status
-        if not self.enabled or (previous, status) not in ALERT_TRANSITIONS:
+        """Call once per scored frame. Fires only when a status in ALERT_TRANSITIONS has
+        held steady for ALERT_SUSTAIN_S seconds - a one-frame blip never fires an alert."""
+        if not self.enabled:
+            return
+        now = time.monotonic()
+
+        if status != self._pending_status:
+            self._pending_status = status   # status just changed; start timing it from scratch
+            self._pending_since = now
+            return
+        if now - self._pending_since < ALERT_SUSTAIN_S:
+            return   # same status, but not held long enough yet
+
+        previous, self._confirmed_status = self._confirmed_status, status
+        if status == previous or (previous, status) not in ALERT_TRANSITIONS:
             return
 
-        now = time.monotonic()
         if self._last_alert_at is not None and now - self._last_alert_at < ALERT_COOLDOWN_S:
             log.info("%s -> %s, but an alert went out %.0fs ago; skipping (shared cooldown %ss)",
                      previous, status, now - self._last_alert_at, ALERT_COOLDOWN_S)
